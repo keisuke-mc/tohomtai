@@ -187,7 +187,7 @@ class Player {
     this.drawRadius=18;
     // 【東方スタイル】当たり判定を見た目より大幅に小さくする
     this.hitRadius=3;
-    this.speed=5.0; this.slowSpeed=2.0;
+    this.speed=5.5; this.slowSpeed=2.0;
     this.shootCooldown=0; this.shootInterval=5;
     this.invincible=0; this.invincibleDuration=120;
     this.animTick=0;
@@ -970,9 +970,14 @@ class Game {
     this.enemies.forEach(e=>e.update());
     this.enemies=this.enemies.filter(e=>e.active);
 
-    // ★ 共通プールの敵弾を毎フレーム更新し、画面外のものを除去
+    // ★ 共通プールの敵弾を更新し、画面外のものをインプレース削除する
+    //   ※ filter() は新配列を返すため this.enemyBullets の参照が切れてしまう。
+    //     Enemy.bulletPool は元の配列参照を持ち続けるので、
+    //     splice で同一配列を変更することで参照を維持する。
     this.enemyBullets.forEach(b=>b.update());
-    this.enemyBullets=this.enemyBullets.filter(b=>b.active);
+    for(let i=this.enemyBullets.length-1;i>=0;i--){
+      if(!this.enemyBullets[i].active) this.enemyBullets.splice(i,1);
+    }
 
     if(this.boss){
       this.boss.update();
