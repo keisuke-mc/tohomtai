@@ -7,10 +7,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+      background: #04000e;
+      display: flex; justify-content: center; align-items: center;
       min-height: 100vh;
       font-family: 'MS Gothic', 'Hiragino Kaku Gothic ProN', monospace;
       overflow: hidden;
@@ -18,27 +16,30 @@
     #game-container { position: relative; width: 400px; height: 600px; }
     #gameCanvas {
       display: block; width: 400px; height: 600px;
-      border: 1px solid #333;
-      box-shadow: 0 0 40px rgba(180,100,255,0.3), 0 0 80px rgba(100,150,255,0.1);
+      border: 1px solid #2a0040;
+      box-shadow: 0 0 40px rgba(180,80,255,0.4), 0 0 80px rgba(100,50,200,0.2);
     }
     #side-left, #side-right {
       position: fixed; top: 50%; transform: translateY(-50%);
-      width: 170px; color: #8888aa; font-size: 11px; line-height: 1.8;
+      width: 160px; color: #7777aa; font-size: 11px; line-height: 1.9;
     }
     #side-left { right: calc(50% + 210px); text-align: right; }
-    #side-right { left: calc(50% + 210px); text-align: left; }
-    .side-title { color: #cc99ff; font-size: 13px; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #443355; padding-bottom: 4px; }
+    #side-right { left:  calc(50% + 210px); text-align: left; }
+    .side-title { color: #cc88ff; font-size: 12px; font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #330044; padding-bottom: 3px; }
     .key-bind { color: #ffdd88; }
+    .hint { color: #ff99bb; }
   </style>
 </head>
 <body>
 <div id="side-left">
   <div class="side-title">操作方法</div>
-  <div><span class="key-bind">←↑↓→</span> 移動</div>
+  <div><span class="key-bind">Arrow</span> 移動</div>
   <div><span class="key-bind">Z / Space</span> ショット</div>
   <div><span class="key-bind">Shift</span> 低速移動</div>
-  <div><span class="key-bind">SPACE</span> スタート</div>
-  <div><span class="key-bind">R キー</span> リスタート</div>
+  <div><span class="key-bind">X</span> ボム (3回)</div>
+  <hr style="border-color:#220033;margin:5px 0">
+  <div><span class="key-bind">Space</span> スタート</div>
+  <div><span class="key-bind">R</span> リスタート</div>
 </div>
 <div id="game-container">
   <canvas id="gameCanvas" width="400" height="600"></canvas>
@@ -46,989 +47,1036 @@
 <div id="side-right">
   <div class="side-title">幻想郷の戦い</div>
   <div>東方Project風</div>
-  <div>弾幕シューティング</div>
-  <br>
+  <div>弾幕シューティング</div><br>
   <div class="side-title">Tips</div>
-  <div>当たり判定は</div>
-  <div>極小です！</div>
-  <div>Shiftで確認↓</div>
-  <br>
-  <div>ボスは</div>
-  <div>スコア2000で</div>
-  <div>出現します</div>
+  <div class="hint">当たり判定は極小!</div>
+  <div>Shiftで確認</div><br>
+  <div class="hint">ボムで緊急回避!</div>
+  <div>弾幕を全消し</div><br>
+  <div>スコア3000で</div>
+  <div>ボス出現</div>
 </div>
-
 <script>
+"use strict";
 // ============================================================
-//  東方Project風 縦スクロール弾幕シューティングゲーム
-//  "幻想郷の戦い"
+//  東方Project風 縦スクロール弾幕シューティング
+//  "幻想郷の戦い" - ボムシステム & スペルカード5枚版
 // ============================================================
 
 const CANVAS_W = 400;
 const CANVAS_H = 600;
-
-// ゲームの状態を表す定数
 const STATE = { START: 'START', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 
-// ===== ユーティリティ関数 =====
-
-/** 2点間の距離 (Math.hypot使用) */
-function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
-
-/** 値をmin〜maxの範囲に収める */
-function clamp(val, min, max) { return Math.min(Math.max(val, min), max); }
-
-/** ランダム整数 [min, max) */
-function randInt(min, max) { return Math.floor(Math.random() * (max - min)) + min; }
-
-/** ランダム浮動小数点 [min, max) */
-function randFloat(min, max) { return Math.random() * (max - min) + min; }
+// ===== ユーティリティ =====
+function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1,y2-y1); }
+function clamp(v,mn,mx){ return Math.min(Math.max(v,mn),mx); }
+function randInt(mn,mx){ return Math.floor(Math.random()*(mx-mn))+mn; }
+function randFloat(mn,mx){ return Math.random()*(mx-mn)+mn; }
 
 
 // ============================================================
-//  InputManager クラス - キーボード入力の一元管理
+//  InputManager - キーボード入力の一元管理
 // ============================================================
 class InputManager {
   constructor() {
-    this.keys = new Set();        // 現在押されているキー
-    this.justPressed = new Set(); // 押した瞬間だけtrueのキー
-
-    window.addEventListener('keydown', (e) => {
+    this.keys        = new Set();
+    this.justPressed = new Set();
+    window.addEventListener('keydown', e => {
       if (!this.keys.has(e.code)) this.justPressed.add(e.code);
       this.keys.add(e.code);
-      // ページスクロールを防ぐ
-      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))
         e.preventDefault();
-      }
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('keyup', e => this.keys.delete(e.code));
   }
-
-  /** キーが押されているか */
-  isDown(code) { return this.keys.has(code); }
-
-  /** キーが押された瞬間か（1フレームのみtrue） */
-  isJustPressed(code) { return this.justPressed.has(code); }
-
-  /** フレーム末にjustPressedをリセット */
-  clearJustPressed() { this.justPressed.clear(); }
+  isDown(c)        { return this.keys.has(c); }
+  isJustPressed(c) { return this.justPressed.has(c); }
+  clearJustPressed(){ this.justPressed.clear(); }
 }
 
 
 // ============================================================
-//  PlayerBullet クラス - 自機の弾
+//  PlayerBullet - 自機の弾
 // ============================================================
 class PlayerBullet {
-  /**
-   * @param {number} x  - 初期X座標
-   * @param {number} y  - 初期Y座標
-   * @param {number} vx - X速度
-   * @param {number} vy - Y速度
-   */
-  constructor(x, y, vx = 0, vy = -14) {
-    this.x = x; this.y = y;
-    this.vx = vx; this.vy = vy;
-    this.radius = 4;   // 当たり判定半径
-    this.power  = 10;  // ダメージ量
-    this.active = true;
+  constructor(x, y, vx=0, vy=-16) {
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy;
+    this.radius=4; this.power=10; this.active=true;
   }
-
   update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    // 画面外に出たら削除フラグ
-    if (this.y < -this.radius) this.active = false;
+    this.x+=this.vx; this.y+=this.vy;
+    if(this.y < -this.radius) this.active=false;
   }
-
   draw(ctx) {
     ctx.save();
-    ctx.shadowColor = '#88ffcc';
-    ctx.shadowBlur  = 8;
-    // 細長い楕円で弾を描画
+    ctx.shadowColor='#88ffcc'; ctx.shadowBlur=8;
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y, this.radius * 0.6, this.radius * 1.8, 0, 0, Math.PI * 2);
-    const g = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
-    g.addColorStop(0, '#ffffff');
-    g.addColorStop(0.5, '#aaffdd');
-    g.addColorStop(1, '#00cc88');
-    ctx.fillStyle = g;
-    ctx.fill();
+    ctx.ellipse(this.x,this.y,this.radius*0.55,this.radius*1.9,0,0,Math.PI*2);
+    const g=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,this.radius);
+    g.addColorStop(0,'#ffffff'); g.addColorStop(0.5,'#aaffdd'); g.addColorStop(1,'#00cc88');
+    ctx.fillStyle=g; ctx.fill(); ctx.restore();
+  }
+}
+
+
+// ============================================================
+//  BombEffect - ボム爆発エフェクト
+//  Xキーを押した瞬間に生成され、画面全体に広がる光の輪を描く
+// ============================================================
+class BombEffect {
+  constructor(x, y) {
+    this.x=x; this.y=y;
+    this.life=80; this.max=80;
+    // 時間差で展開する複数のリング
+    this.rings = [];
+    for(let i=0;i<5;i++){
+      this.rings.push({ delay:i*10, r:0, maxR:200+i*35, alpha:1 });
+    }
+    this.active=true;
+  }
+  update() {
+    this.life--;
+    if(this.life<=0){ this.active=false; return; }
+    const elapsed = this.max - this.life;
+    this.rings.forEach(ring => {
+      if(elapsed >= ring.delay){
+        ring.r     = Math.min(ring.r+6, ring.maxR);
+        ring.alpha = 1 - ring.r/ring.maxR;
+      }
+    });
+  }
+  draw(ctx) {
+    const t = this.max - this.life;
+    ctx.save();
+    // 最初の数フレームは画面全体を白くフラッシュ
+    if(t < 8){
+      ctx.fillStyle=`rgba(255,255,255,${0.38*(1-t/8)})`;
+      ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    }
+    // 拡散する光のリング
+    this.rings.forEach(ring => {
+      if(ring.r<=0) return;
+      ctx.beginPath();
+      ctx.arc(this.x,this.y,ring.r,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(180,120,255,${ring.alpha*0.9})`;
+      ctx.lineWidth=4*ring.alpha+1;
+      ctx.shadowColor='#cc88ff'; ctx.shadowBlur=18;
+      ctx.stroke();
+    });
+    // 中心の輝き（開始直後のみ）
+    if(t<20){
+      const a=1-t/20;
+      const g=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,65);
+      g.addColorStop(0,`rgba(255,255,255,${a})`);
+      g.addColorStop(0.4,`rgba(190,130,255,${a*0.7})`);
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(this.x,this.y,65,0,Math.PI*2); ctx.fill();
+    }
     ctx.restore();
   }
 }
 
 
 // ============================================================
-//  Player クラス - 自機の全処理
+//  Player - 自機の全処理
 // ============================================================
 class Player {
   constructor() {
-    // 初期座標（画面中央下部）
-    this.x = CANVAS_W / 2;
-    this.y = CANVAS_H - 100;
-    this.drawRadius = 18;
-
-    // 【東方スタイル】当たり判定は見た目より大幅に小さくする
-    // これにより弾幕をギリギリかすめる爽快感が生まれる
-    this.hitRadius = 3;
-
-    this.speed     = 5.0;   // 通常移動速度
-    this.slowSpeed = 2.0;   // 低速移動速度 (Shift押下時)
-
-    this.shootCooldown = 0;
-    this.shootInterval = 6; // 6フレームに1発
-
-    // 無敵時間（被弾後の点滅）
-    this.invincible         = 0;
-    this.invincibleDuration = 120; // 約2秒
-
-    this.animTick = 0;
-    this.bullets  = []; // 自機弾の配列
+    this.x=CANVAS_W/2; this.y=CANVAS_H-100;
+    this.drawRadius=18;
+    // 【東方スタイル】当たり判定を見た目より大幅に小さくする
+    this.hitRadius=3;
+    this.speed=5.0; this.slowSpeed=2.0;
+    this.shootCooldown=0; this.shootInterval=5;
+    this.invincible=0; this.invincibleDuration=120;
+    this.animTick=0;
+    this.bullets=[];
+    // ===== ボムシステム =====
+    this.bombs=3;           // ボム残数（最大3）
+    this.bombActive=false;  // ボム発動中フラグ
+    this.bombTimer=0;       // 発動中カウンター
+    this.bombDuration=90;   // ボムの持続フレーム数
   }
 
   /**
    * 毎フレームの更新
    * @param {InputManager} input
+   * @param {Game} game  ボム起動のためゲームオブジェクトを参照
    */
-  update(input) {
+  update(input, game) {
     this.animTick++;
 
     // --- 移動処理 ---
-    const isSlow = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
+    const isSlow = input.isDown('ShiftLeft')||input.isDown('ShiftRight');
     const spd = isSlow ? this.slowSpeed : this.speed;
+    const dx = (input.isDown('ArrowLeft')?-1:0)+(input.isDown('ArrowRight')?1:0);
+    const dy = (input.isDown('ArrowUp')?-1:0)+(input.isDown('ArrowDown')?1:0);
+    const len = Math.hypot(dx,dy);
+    if(len>0){ this.x+=(dx/len)*spd; this.y+=(dy/len)*spd; }
+    this.x=clamp(this.x,this.drawRadius,CANVAS_W-this.drawRadius);
+    this.y=clamp(this.y,this.drawRadius,CANVAS_H-44);
 
-    // 入力方向ベクトルを計算
-    const dx = (input.isDown('ArrowLeft') ? -1 : 0) + (input.isDown('ArrowRight') ? 1 : 0);
-    const dy = (input.isDown('ArrowUp')   ? -1 : 0) + (input.isDown('ArrowDown')  ? 1 : 0);
-    const len = Math.hypot(dx, dy);
-
-    // 斜め移動の正規化（対角線移動が速くなるのを防ぐ）
-    if (len > 0) {
-      this.x += (dx / len) * spd;
-      this.y += (dy / len) * spd;
+    // --- ショット処理（ZキーまたはSpaceキー）---
+    if(this.shootCooldown>0) this.shootCooldown--;
+    if((input.isDown('KeyZ')||input.isDown('Space'))&&this.shootCooldown===0){
+      this.shootCooldown=this.shootInterval;
+      // 3列弾（左列・中央列・右列）
+      // 左列（x-8）
+      this.bullets.push(new PlayerBullet(this.x-8,  this.y-4,  -1.5, -15.5));
+      // 中央列（x）
+      this.bullets.push(new PlayerBullet(this.x,    this.y-12,  0.0, -16));
+      // 右列（x+8）
+      this.bullets.push(new PlayerBullet(this.x+8,  this.y-4,   1.5, -15.5));
     }
 
-    // 画面外に出ないようにクランプ
-    this.x = clamp(this.x, this.drawRadius, CANVAS_W - this.drawRadius);
-    this.y = clamp(this.y, this.drawRadius, CANVAS_H - 44);
-
-    // --- ショット処理 (ZキーまたはSpaceキー) ---
-    if (this.shootCooldown > 0) this.shootCooldown--;
-    if ((input.isDown('KeyZ') || input.isDown('Space')) && this.shootCooldown === 0) {
-      this.shootCooldown = this.shootInterval;
-      // 3-Way弾（中央・左・右）
-      this.bullets.push(new PlayerBullet(this.x,      this.y - 10,  0.0, -15));
-      this.bullets.push(new PlayerBullet(this.x - 10, this.y,      -1.5, -14));
-      this.bullets.push(new PlayerBullet(this.x + 10, this.y,       1.5, -14));
+    // --- ボム発動処理（Xキーを押した瞬間だけ発動）---
+    if(input.isJustPressed('KeyX') && this.bombs>0 && !this.bombActive){
+      this.bombs--;
+      this.bombActive=true;
+      this.bombTimer=this.bombDuration;
+      // ボム発動中は無敵
+      this.invincible=this.bombDuration+30;
+      // ゲームにボム処理を依頼（弾消し・ダメージ）
+      game.activateBomb(this.x, this.y);
     }
+
+    // --- ボムタイマー管理 ---
+    if(this.bombActive){ this.bombTimer--; if(this.bombTimer<=0) this.bombActive=false; }
 
     // --- 無敵時間カウントダウン ---
-    if (this.invincible > 0) this.invincible--;
+    if(this.invincible>0) this.invincible--;
 
-    // --- 弾の更新と不要弾の除去 ---
-    this.bullets.forEach(b => b.update());
-    this.bullets = this.bullets.filter(b => b.active);
+    // --- 弾の更新・画面外削除 ---
+    this.bullets.forEach(b=>b.update());
+    this.bullets=this.bullets.filter(b=>b.active);
   }
 
-  /**
-   * 被弾処理
-   * @returns {boolean} 実際にダメージを受けたか
-   */
   hit() {
-    if (this.invincible > 0) return false; // 無敵中はスキップ
-    this.invincible = this.invincibleDuration;
-    return true;
+    if(this.invincible>0) return false;
+    this.invincible=this.invincibleDuration; return true;
   }
 
-  /**
-   * 自機を描画
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {InputManager} input
-   */
   draw(ctx, input) {
-    // 無敵中は4フレームごとに点滅
-    if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2 === 0) return;
-
+    // 無敵中は4フレームごと点滅（ボム発動中は点滅しない）
+    if(this.invincible>0 && !this.bombActive && Math.floor(this.invincible/4)%2===0) return;
     ctx.save();
     ctx.translate(this.x, this.y);
-    const t = this.animTick;
+    const t=this.animTick;
+    if(this.bombActive){ ctx.shadowColor=`hsl(${t*5%360},100%,70%)`; ctx.shadowBlur=28; }
 
-    // --- エネルギーウィング（左） ---
+    // エネルギーウィング（左）
     ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(-30, -10, -45, 10, -35, 25);
-    ctx.bezierCurveTo(-25, 35, -10, 20, 0, 15);
-    ctx.closePath();
-    const wingG = ctx.createLinearGradient(-45, 0, 0, 0);
-    wingG.addColorStop(0, 'rgba(100,180,255,0)');
-    wingG.addColorStop(0.5, 'rgba(100,180,255,0.4)');
-    wingG.addColorStop(1, 'rgba(200,220,255,0.7)');
-    ctx.fillStyle = wingG;
-    ctx.fill();
+    ctx.moveTo(0,0); ctx.bezierCurveTo(-30,-10,-45,10,-35,25); ctx.bezierCurveTo(-25,35,-10,20,0,15); ctx.closePath();
+    const wingG=ctx.createLinearGradient(-45,0,0,0);
+    wingG.addColorStop(0,'rgba(100,180,255,0)'); wingG.addColorStop(0.5,'rgba(100,180,255,0.4)'); wingG.addColorStop(1,'rgba(200,220,255,0.7)');
+    ctx.fillStyle=wingG; ctx.fill();
+    // エネルギーウィング（右）
+    ctx.save(); ctx.scale(-1,1);
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.bezierCurveTo(-30,-10,-45,10,-35,25); ctx.bezierCurveTo(-25,35,-10,20,0,15); ctx.closePath();
+    ctx.fillStyle=wingG; ctx.fill(); ctx.restore();
 
-    // --- エネルギーウィング（右、左を反転） ---
-    ctx.save();
-    ctx.scale(-1, 1);
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(-30, -10, -45, 10, -35, 25);
-    ctx.bezierCurveTo(-25, 35, -10, 20, 0, 15);
-    ctx.closePath();
-    ctx.fillStyle = wingG;
-    ctx.fill();
-    ctx.restore();
+    // 機体本体
+    ctx.beginPath(); ctx.moveTo(0,-18); ctx.lineTo(-12,15); ctx.lineTo(12,15); ctx.closePath();
+    const bodyG=ctx.createLinearGradient(0,-18,0,15);
+    bodyG.addColorStop(0,'#ffffff');
+    bodyG.addColorStop(0.4, this.bombActive ? `hsl(${t*4%360},100%,85%)` : '#aaddff');
+    bodyG.addColorStop(1,'#5588cc');
+    ctx.fillStyle=bodyG;
+    if(!this.bombActive){ ctx.shadowColor='#88ccff'; ctx.shadowBlur=12; }
+    ctx.fill(); ctx.strokeStyle='rgba(200,230,255,0.8)'; ctx.lineWidth=1.5; ctx.stroke();
 
-    // --- 機体本体（三角形） ---
-    ctx.beginPath();
-    ctx.moveTo(0, -18);   // 前方頂点
-    ctx.lineTo(-12, 15);  // 左後部
-    ctx.lineTo(12, 15);   // 右後部
-    ctx.closePath();
-    const bodyG = ctx.createLinearGradient(0, -18, 0, 15);
-    bodyG.addColorStop(0, '#ffffff');
-    bodyG.addColorStop(0.4, '#aaddff');
-    bodyG.addColorStop(1, '#5588cc');
-    ctx.fillStyle = bodyG;
-    ctx.shadowColor = '#88ccff';
-    ctx.shadowBlur = 12;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(200,230,255,0.8)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // エンジン炎
+    const fH=8+Math.sin(t*0.3)*3;
+    ctx.beginPath(); ctx.moveTo(-6,15); ctx.lineTo(6,15); ctx.lineTo(0,15+fH); ctx.closePath();
+    const fG=ctx.createLinearGradient(0,15,0,15+fH);
+    fG.addColorStop(0,'rgba(255,255,200,0.9)'); fG.addColorStop(0.5,'rgba(100,180,255,0.6)'); fG.addColorStop(1,'rgba(100,180,255,0)');
+    ctx.fillStyle=fG; ctx.shadowColor='#aaddff'; ctx.shadowBlur=10; ctx.fill();
 
-    // --- エンジン炎（推進炎） ---
-    const flameH = 8 + Math.sin(t * 0.3) * 3;
-    ctx.beginPath();
-    ctx.moveTo(-6, 15);
-    ctx.lineTo(6, 15);
-    ctx.lineTo(0, 15 + flameH);
-    ctx.closePath();
-    const flameG = ctx.createLinearGradient(0, 15, 0, 15 + flameH);
-    flameG.addColorStop(0, 'rgba(255,255,200,0.9)');
-    flameG.addColorStop(0.5, 'rgba(100,180,255,0.6)');
-    flameG.addColorStop(1, 'rgba(100,180,255,0)');
-    ctx.fillStyle = flameG;
-    ctx.shadowColor = '#aaddff';
-    ctx.shadowBlur = 10;
-    ctx.fill();
-
-    // --- Shiftキー中の当たり判定可視化 ---
-    // 東方の特徴：低速中に自機中心の極小当たり判定が見える
-    const isSlow = input && (input.isDown('ShiftLeft') || input.isDown('ShiftRight'));
-    if (isSlow) {
-      // 回転するドット（装飾リング）
-      ctx.save();
-      ctx.rotate(t * 0.05);
-      for (let i = 0; i < 8; i++) {
-        const a = (Math.PI * 2 / 8) * i;
-        ctx.beginPath();
-        ctx.arc(Math.cos(a) * 10, Math.sin(a) * 10, 2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255,100,150,0.85)';
-        ctx.shadowColor = '#ff6699';
-        ctx.shadowBlur = 6;
-        ctx.fill();
+    // Shift中の当たり判定可視化
+    const isSlow=input&&(input.isDown('ShiftLeft')||input.isDown('ShiftRight'));
+    if(isSlow){
+      ctx.save(); ctx.rotate(t*0.05);
+      for(let i=0;i<8;i++){
+        const a=(Math.PI*2/8)*i;
+        ctx.beginPath(); ctx.arc(Math.cos(a)*10,Math.sin(a)*10,2,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,100,150,0.85)'; ctx.shadowColor='#ff6699'; ctx.shadowBlur=6; ctx.fill();
       }
       ctx.restore();
-
-      // 中心の当たり判定円（赤い小さい丸）
-      ctx.beginPath();
-      ctx.arc(0, 0, this.hitRadius, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff3366';
-      ctx.shadowColor = '#ff0044';
-      ctx.shadowBlur = 8;
-      ctx.fill();
-
-      // 当たり判定外周リング
-      ctx.beginPath();
-      ctx.arc(0, 0, this.hitRadius + 3, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,100,150,0.6)';
-      ctx.lineWidth = 1;
-      ctx.shadowBlur = 0;
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(0,0,this.hitRadius,0,Math.PI*2);
+      ctx.fillStyle='#ff3366'; ctx.shadowColor='#ff0044'; ctx.shadowBlur=8; ctx.fill();
+      ctx.beginPath(); ctx.arc(0,0,this.hitRadius+3,0,Math.PI*2);
+      ctx.strokeStyle='rgba(255,100,150,0.6)'; ctx.lineWidth=1; ctx.shadowBlur=0; ctx.stroke();
     }
-
     ctx.restore();
-
-    // 自機弾を描画
-    this.bullets.forEach(b => b.draw(ctx));
+    this.bullets.forEach(b=>b.draw(ctx));
   }
 }
 
 
 // ============================================================
-//  EnemyBullet クラス - 敵弾（弾幕の1粒）
+//  EnemyBullet - 敵弾（弾幕の1粒）
 // ============================================================
 class EnemyBullet {
+  constructor(x,y,vx,vy,color='#ff4444',r=6) {
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy;
+    this.color=color; this.radius=r; this.hitRadius=r*0.6; this.active=true;
+  }
+  update() {
+    this.x+=this.vx; this.y+=this.vy;
+    if(this.x<-this.radius*3||this.x>CANVAS_W+this.radius*3||
+       this.y<-this.radius*3||this.y>CANVAS_H+this.radius*3) this.active=false;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.shadowColor=this.color; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(this.x,this.y,this.radius,0,Math.PI*2);
+    ctx.fillStyle=this.color; ctx.fill();
+    ctx.beginPath(); ctx.arc(this.x,this.y,this.radius*0.42,0,Math.PI*2);
+    ctx.fillStyle='#ffffff'; ctx.shadowBlur=4; ctx.fill();
+    ctx.restore();
+  }
+}
+
+
+// ============================================================
+//  Particle - 爆発エフェクト用パーティクル
+// ============================================================
+class Particle {
+  constructor(x,y,color,size=null,speedMult=1) {
+    this.x=x; this.y=y;
+    const s=(size??randFloat(1.5,4.5))*speedMult;
+    const a=randFloat(0,Math.PI*2);
+    this.vx=Math.cos(a)*s; this.vy=Math.sin(a)*s;
+    this.life=randInt(20,45); this.maxLife=this.life;
+    this.radius=size??randFloat(2,5);
+    this.color=color; this.active=true;
+  }
+  update() {
+    this.x+=this.vx; this.y+=this.vy;
+    this.vx*=0.94; this.vy*=0.94;
+    this.life--; if(this.life<=0) this.active=false;
+  }
+  draw(ctx) {
+    const a=this.life/this.maxLife;
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.beginPath(); ctx.arc(this.x,this.y,Math.max(this.radius*a,0.5),0,Math.PI*2);
+    ctx.fillStyle=this.color; ctx.shadowColor=this.color; ctx.shadowBlur=6; ctx.fill();
+    ctx.restore();
+  }
+}
+
+
+// ============================================================
+//  Enemy - 雑魚敵（強化版）
+//  4タイプの異なる弾幕パターンと高HPを持つ
+//  ★ 弾はゲーム共通プール(bulletPool)に発射する
+//    → 敵が撃破されても弾は画面外に出るまで飛び続ける
+// ============================================================
+class Enemy {
   /**
-   * @param {number} x     - 初期X
-   * @param {number} y     - 初期Y
-   * @param {number} vx    - X速度
-   * @param {number} vy    - Y速度
-   * @param {string} color - 外周色
-   * @param {number} r     - 描画半径
+   * @param {number}       x
+   * @param {number}       y
+   * @param {Player}       player
+   * @param {string}       type       'normal'|'spread'|'fast'|'fortress'
+   * @param {EnemyBullet[]} bulletPool ゲーム側が管理する共通弾プール
    */
-  constructor(x, y, vx, vy, color = '#ff4444', r = 6) {
-    this.x = x; this.y = y;
-    this.vx = vx; this.vy = vy;
-    this.color    = color;
-    this.radius   = r;
-    this.hitRadius = r * 0.6; // 当たり判定は描画より小さめ
-    this.active   = true;
+  constructor(x,y,player,type='normal',bulletPool) {
+    this.x=x; this.y=y; this.player=player; this.type=type;
+    // ゲーム共通プールへの参照を保持（敵が消えても弾が残る仕組みの核心）
+    this.bulletPool = bulletPool;
+    this.animTick=0; this.active=true;
+    this.shootCount=0;
+
+    // タイプ別ステータス
+    switch(type){
+      case 'spread': // 拡散弾タイプ：5-Way
+        this.radius=17; this.hp=this.maxHp=55;
+        this.speed=randFloat(0.6,1.2); this.shootInterval=randInt(55,80);
+        this.score=200; this.hue=200; break;
+      case 'fast': // 高速弾タイプ：超速3-Way
+        this.radius=13; this.hp=this.maxHp=35;
+        this.speed=randFloat(1.5,2.5); this.shootInterval=randInt(38,58);
+        this.score=150; this.hue=280; break;
+      case 'fortress': // 要塞タイプ：全方位8弾
+        this.radius=22; this.hp=this.maxHp=130;
+        this.speed=randFloat(0.3,0.7); this.shootInterval=randInt(75,95);
+        this.score=400; this.hue=0; break;
+      default: // normal：自機狙い+時々高速弾
+        this.radius=16; this.hp=this.maxHp=50;
+        this.speed=randFloat(0.9,1.8); this.shootInterval=randInt(62,98);
+        this.score=100; this.hue=240;
+    }
+    this.shootCooldown=randInt(30,90);
+    this.wobbleOffset=randFloat(0,Math.PI*2);
+    this.wobbleSpeed=randFloat(0.02,0.05);
+    this.wobbleAmp=randFloat(1.0,3.0);
   }
 
-  update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    // 画面外に出たら削除（メモリリーク防止）
-    if (this.x < -this.radius * 2 || this.x > CANVAS_W + this.radius * 2 ||
-        this.y < -this.radius * 2 || this.y > CANVAS_H + this.radius * 2) {
-      this.active = false;
+  /** 【弾幕①】自機狙い1発 - atan2でプレイヤー方向を計算 */
+  shootAimed(speedMult=1) {
+    const angle=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    const speed=randFloat(3.8,5.2)*speedMult;
+    this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(angle)*speed,Math.sin(angle)*speed,'#ff4444',6));
+  }
+
+  /** 【弾幕②】自機狙い5-Way扇弾 - spreadタイプ */
+  shoot5Way() {
+    const base=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    for(let i=-2;i<=2;i++){
+      const a=base+i*0.22;
+      this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(a)*4.0,Math.sin(a)*4.0,'#4488ff',6));
     }
   }
 
-  draw(ctx) {
-    ctx.save();
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur  = 8;
-    // 外周の色付き円
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.color;
-    ctx.fill();
-    // 中央の白い輝き（視認性向上）
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius * 0.45, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowBlur = 4;
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-
-// ============================================================
-//  Particle クラス - 爆発エフェクト用パーティクル
-// ============================================================
-class Particle {
-  constructor(x, y, color) {
-    this.x = x; this.y = y;
-    this.vx = randFloat(-3, 3);
-    this.vy = randFloat(-3, 3);
-    this.life    = randInt(20, 40);
-    this.maxLife = this.life;
-    this.radius  = randFloat(2, 5);
-    this.color   = color;
-    this.active  = true;
+  /** 【弾幕③】超高速3-Way - fastタイプ */
+  shootFast3Way() {
+    const base=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    for(let i=-1;i<=1;i++){
+      const a=base+i*0.18;
+      this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(a)*7.5,Math.sin(a)*7.5,'#ff88ff',5));
+    }
   }
 
-  update() {
-    this.x  += this.vx;
-    this.y  += this.vy;
-    this.vx *= 0.95; // 摩擦
-    this.vy *= 0.95;
-    this.life--;
-    if (this.life <= 0) this.active = false;
-  }
-
-  draw(ctx) {
-    const a = this.life / this.maxLife;
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius * a, 0, Math.PI * 2);
-    ctx.fillStyle = this.color;
-    ctx.shadowColor = this.color;
-    ctx.shadowBlur = 6;
-    ctx.fill();
-    ctx.restore();
-  }
-}
-
-
-// ============================================================
-//  Enemy クラス - 雑魚敵
-//  画面上部から出現し、自機狙い弾を撃ちながら下へ移動
-// ============================================================
-class Enemy {
-  constructor(x, y, player) {
-    this.x = x; this.y = y;
-    this.player  = player;
-    this.radius  = 16;
-    this.hp      = 30;
-    this.maxHp   = 30;
-    this.speed   = randFloat(0.8, 1.5);
-    this.animTick = 0;
-    this.active  = true;
-    this.bullets = [];
-
-    // 弾発射クールタイム（ランダムにずらして同時発射を防ぐ）
-    this.shootCooldown = randInt(30, 90);
-    this.shootInterval = randInt(80, 130);
-
-    // sin波による横揺れ移動パラメータ
-    this.wobbleOffset = randFloat(0, Math.PI * 2);
-    this.wobbleSpeed  = randFloat(0.02, 0.04);
-    this.wobbleAmp    = randFloat(1, 2.5);
-
-    this.score = 100; // 撃破スコア
-  }
-
-  /**
-   * 【弾幕パターン1】自機狙い弾
-   * 発射時のプレイヤー座標に向けて直線弾を発射する
-   */
-  shootAimed() {
-    // atan2でプレイヤーへの角度を計算
-    const angle = Math.atan2(this.player.y - this.y, this.player.x - this.x);
-    const speed = randFloat(2.5, 3.5);
-    this.bullets.push(new EnemyBullet(
-      this.x, this.y,
-      Math.cos(angle) * speed,
-      Math.sin(angle) * speed,
-      '#ff4444', 6
-    ));
+  /** 【弾幕④】全方位8弾 - fortressタイプ、cos/sinで均等角度配置 */
+  shoot8Way() {
+    for(let i=0;i<8;i++){
+      const a=(Math.PI*2/8)*i+this.animTick*0.05;
+      this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(a)*3.4,Math.sin(a)*3.4,'#ff6600',6));
+    }
   }
 
   update() {
     this.animTick++;
-    // sin波で横揺れしながら下へ移動
-    this.x += Math.sin(this.animTick * this.wobbleSpeed + this.wobbleOffset) * this.wobbleAmp;
-    this.y += this.speed;
-
-    // 弾発射
-    if (this.shootCooldown > 0) {
-      this.shootCooldown--;
-    } else {
-      this.shootCooldown = this.shootInterval;
-      this.shootAimed();
+    this.x+=Math.sin(this.animTick*this.wobbleSpeed+this.wobbleOffset)*this.wobbleAmp;
+    this.y+=this.speed;
+    if(this.shootCooldown>0){ this.shootCooldown--; }
+    else {
+      this.shootCooldown=this.shootInterval; this.shootCount++;
+      switch(this.type){
+        case 'spread': this.shoot5Way(); if(this.shootCount%3===0) this.shootAimed(0.9); break;
+        case 'fast':   this.shootFast3Way(); break;
+        case 'fortress': this.shoot8Way(); if(this.shootCount%2===0) this.shootAimed(1.2); break;
+        default: this.shootAimed(); if(this.shootCount%4===0) this.shootAimed(1.4); break;
+      }
     }
-
-    // 画面外に出たら削除
-    if (this.y > CANVAS_H + this.radius * 2) this.active = false;
-
-    // 配下の弾を更新
-    this.bullets.forEach(b => b.update());
-    this.bullets = this.bullets.filter(b => b.active);
+    // 画面下に完全に出たら自身を非アクティブに（弾はプール側で管理）
+    if(this.y>CANVAS_H+this.radius*2) this.active=false;
   }
 
-  /**
-   * ダメージを受ける
-   * @param {number} dmg
-   * @returns {boolean} 撃破されたか
-   */
   damage(dmg) {
-    this.hp -= dmg;
-    if (this.hp <= 0) { this.active = false; return true; }
-    return false;
+    this.hp-=dmg;
+    if(this.hp<=0){ this.active=false; return true; } return false;
   }
 
   draw(ctx) {
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    const t = this.animTick;
-
-    // 本体（回転する六角形）
+    ctx.save(); ctx.translate(this.x,this.y);
+    const t=this.animTick, hp=this.hp/this.maxHp;
+    const sides=this.type==='fortress'?4:6;
+    const rot=this.type==='fortress'?Math.PI/4+t*0.01:-Math.PI/6+t*0.03;
     ctx.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI / 3) * i - Math.PI / 6 + t * 0.03;
-      const rx = Math.cos(a) * this.radius;
-      const ry = Math.sin(a) * this.radius;
-      if (i === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+    for(let i=0;i<sides;i++){
+      const a=(Math.PI*2/sides)*i+rot;
+      if(i===0) ctx.moveTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
+      else ctx.lineTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
     }
     ctx.closePath();
-
-    // HPに応じて色が変化する（緑→赤）
-    const hp = this.hp / this.maxHp;
-    ctx.fillStyle = `rgb(${Math.floor(255*(1-hp*0.5))},${Math.floor(80*hp)},${Math.floor(200*hp)})`;
-    ctx.shadowColor = ctx.fillStyle;
-    ctx.shadowBlur = 10;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,200,255,0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // 中央の目
-    ctx.beginPath();
-    ctx.arc(0, 0, 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#ff88ff';
-    ctx.shadowColor = '#ff00ff';
-    ctx.shadowBlur = 8;
-    ctx.fill();
-
+    ctx.fillStyle=`hsl(${this.hue},${70+30*hp}%,${25+20*hp}%)`;
+    ctx.shadowColor=`hsl(${this.hue},100%,60%)`; ctx.shadowBlur=12; ctx.fill();
+    ctx.strokeStyle=`hsla(${this.hue},100%,80%,0.8)`; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2);
+    ctx.fillStyle=`hsl(${this.hue+60},100%,80%)`; ctx.shadowColor=`hsl(${this.hue+60},100%,60%)`; ctx.shadowBlur=8; ctx.fill();
+    if(this.type==='fortress'){
+      ctx.beginPath(); ctx.arc(0,0,this.radius+5,0,Math.PI*2);
+      ctx.strokeStyle=`hsla(${this.hue},90%,60%,0.4)`; ctx.lineWidth=2; ctx.shadowBlur=0; ctx.stroke();
+    }
     ctx.restore();
-    this.bullets.forEach(b => b.draw(ctx));
+    // ★ 弾はゲーム側のプールから描画するのでここでは描画しない
   }
 }
 
 
 // ============================================================
-//  Boss クラス - ボス敵
-//  3フェーズの弾幕パターンとHPバーを持つ強敵
+//  Boss - ボス敵
+//  5枚のスペルカードシステムを持つ最強の敵
 // ============================================================
 class Boss {
   constructor(player) {
-    this.player  = player;
-    this.x       = CANVAS_W / 2;
-    this.y       = -60;      // 画面外から登場
-    this.targetY = 100;      // 停止Y座標
-    this.radius  = 30;
-    this.maxHp   = 1500;
-    this.hp      = this.maxHp;
-    this.animTick = 0;
-    this.active  = true;
-    this.bullets = [];
+    this.player=player;
+    this.x=CANVAS_W/2; this.y=-60; this.targetY=100;
+    this.radius=32; this.animTick=0; this.patternTimer=0;
+    this.spiralAngle=0; this.moveTimer=0;
+    this.active=true; this.bullets=[]; this.entering=true;
+    this.score=8000;
 
-    this.phase        = 1;   // 弾幕フェーズ
-    this.patternTimer = 0;
-    this.spiralAngle  = 0;   // 螺旋弾の現在角度
-    this.moveTimer    = 0;
-    this.entering     = true; // 入場中フラグ
+    // ===== スペルカード定義（5枚）=====
+    // 各カードはHP・名前・カラーテーマ・弾幕メソッド名を持つ
+    this.spellCards = [
+      { name:'妖符「紅蝶乱舞」',         nameEn:'Demon Sign "Dance of Crimson Butterflies"',  hp:3000, maxHp:3000, bgHue:350, method:'sc1' },
+      { name:'霊符「幽霊の輪舞曲」',     nameEn:'Spirit Sign "Waltz of Phantoms"',             hp:3500, maxHp:3500, bgHue:240, method:'sc2' },
+      { name:'星符「星屑の奔流」',       nameEn:'Star Sign "Torrent of Stardust"',             hp:4000, maxHp:4000, bgHue:55,  method:'sc3' },
+      { name:'禁忌「永夜の花嵐」',       nameEn:'Forbidden "Eternal Night Flower Storm"',       hp:4500, maxHp:4500, bgHue:290, method:'sc4' },
+      { name:'神霊「光の三位一体」',     nameEn:'Divine Spirit "Holy Trinity of Light"',        hp:5000, maxHp:5000, bgHue:180, method:'sc5' },
+    ];
 
-    this.score = 5000;
+    this.currentCard=0;
+    this.cardTimer=0;
+    this.cardAnnounce=0; // アナウンス表示カウンター
+    this.ceasefireTimer=0; // 停戦猶予カウンター（この間は弾を撃たない）
+
+    // 最初のカードのHPをセット
+    this.hp=this.spellCards[0].hp;
+    this.maxHp=this.spellCards[0].maxHp;
   }
 
-  /**
-   * 【弾幕パターン2a】全方位弾（N-Way）
-   * cos/sinを使い中心から均等な角度で放射状に弾を発射する
-   * @param {number} n          - 弾の数
-   * @param {number} speed      - 速度
-   * @param {string} color      - 色
-   * @param {number} angleOffset - 回転オフセット（ラジアン）
-   */
-  shootNWay(n, speed, color = '#ff4444', angleOffset = 0) {
-    for (let i = 0; i < n; i++) {
-      const a = (Math.PI * 2 / n) * i + angleOffset;
-      this.bullets.push(new EnemyBullet(
-        this.x, this.y,
-        Math.cos(a) * speed, Math.sin(a) * speed,
-        color, 7
-      ));
+  get card(){ return this.spellCards[this.currentCard]; }
+
+  // ----- 共通発射ヘルパー -----
+  /** 全方位N-Way弾 - cos/sinで均等角度に展開 */
+  shootNWay(n,speed,color,offset=0){
+    for(let i=0;i<n;i++){
+      const a=(Math.PI*2/n)*i+offset;
+      this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*speed,Math.sin(a)*speed,color,7));
     }
   }
 
-  /**
-   * 【弾幕パターン2b】螺旋（スパイラル）弾
-   * spiralAngleを毎フレームわずかに増加させながら発射することで
-   * Math.cos/sinが作る円運動が螺旋軌跡を形成する
-   */
-  shootSpiral() {
-    for (let arm = 0; arm < 2; arm++) {
-      const a = this.spiralAngle + arm * Math.PI; // 180度対称の2腕
-      this.bullets.push(new EnemyBullet(
-        this.x, this.y,
-        Math.cos(a) * 2.5, Math.sin(a) * 2.5,
-        '#4488ff', 6
-      ));
+  /** 螺旋弾 - spiralAngleを毎回増やすことで方向が変化し螺旋を形成 */
+  shootSpiral(arms,speed,color,step=0.18){
+    for(let arm=0;arm<arms;arm++){
+      const a=this.spiralAngle+arm*(Math.PI*2/arms);
+      this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*speed,Math.sin(a)*speed,color,6));
     }
-    this.spiralAngle += 0.15; // 角度を増加 → 次フレームで方向が変わる
+    this.spiralAngle+=step;
   }
 
-  /**
-   * 【弾幕パターン2c】自機狙い扇状弾
-   * プレイヤー方向を中心に扇形に複数弾を同時発射
-   * @param {number} n      - 弾の数
-   * @param {number} spread - 扇の広がり角度（ラジアン）
-   */
-  shootFanAimed(n = 5, spread = 0.4) {
-    const base = Math.atan2(this.player.y - this.y, this.player.x - this.x);
-    for (let i = 0; i < n; i++) {
-      const a = base - (spread * (n-1) / 2) + spread * i;
-      this.bullets.push(new EnemyBullet(
-        this.x, this.y,
-        Math.cos(a) * 3.0, Math.sin(a) * 3.0,
-        '#ffaa22', 6
-      ));
+  /** 自機狙い扇状弾 - atan2でプレイヤー方向を中心に扇形展開 */
+  shootFanAimed(n,spread,speed,color){
+    const base=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    for(let i=0;i<n;i++){
+      const a=base-(spread*(n-1)/2)+spread*i;
+      this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*speed,Math.sin(a)*speed,color,6));
     }
   }
 
-  update() {
-    this.animTick++;
-    this.patternTimer++;
+  // ----- スペルカード別弾幕メソッド -----
 
-    // --- 入場演出（上から降りてくる） ---
-    if (this.entering) {
-      this.y += 1.5;
-      if (this.y >= this.targetY) { this.y = this.targetY; this.entering = false; }
+  /**
+   * スペルカード1「妖符「紅蝶乱舞」」
+   * 赤い蝶が舞うような2腕螺旋と自機狙い扇弾の組み合わせ
+   */
+  sc1(t){
+    // 2腕赤螺旋：8フレームごとに発射（ゆったりした蝶の羽ばたき）
+    if(t%8===0) this.shootSpiral(2,2.8,'#ff2255',0.22);
+    // 5-Way扇弾：90フレームごと
+    if(t%90===0) this.shootFanAimed(5,0.28,3.2,'#ff8899');
+    // 全方位12弾：180フレームごと
+    if(t%180===0) this.shootNWay(12,2.5,'#ff3344',this.spiralAngle);
+  }
+
+  /**
+   * スペルカード2「霊符「幽霊の輪舞曲」」
+   * 周期的な全方位リング弾幕が輪舞を演出
+   */
+  sc2(t){
+    // 全方位リング：90フレームごとに2重輪
+    if(t%90===0)  this.shootNWay(16,1.8,'#4488ff',t*0.05);
+    if(t%90===45) this.shootNWay(16,2.5,'#8844ff',t*0.05+Math.PI/16);
+    // 4腕ゆっくり螺旋：12フレームごと
+    if(t%12===0)  this.shootSpiral(4,1.5,'#aaaaff',0.08);
+    // 自機狙い3-Way：75フレームごと
+    if(t%75===0)  this.shootFanAimed(3,0.25,4.0,'#ccaaff');
+  }
+
+  /**
+   * スペルカード3「星符「星屑の奔流」」
+   * 高密度の自機狙い弾幕が流星群のように降り注ぐ
+   */
+  sc3(t){
+    // 高密度3-Way：12フレームごと（流星群）
+    if(t%12===0)  this.shootFanAimed(3,0.20,4.8,'#ffdd00');
+    // 7-Way：60フレームごと
+    if(t%60===0)  this.shootFanAimed(7,0.35,3.6,'#ffaa00');
+    // 全方位20弾：150フレームごと
+    if(t%150===0) this.shootNWay(20,2.2,'#ffee44',this.spiralAngle);
+    this.spiralAngle+=0.03;
+  }
+
+  /**
+   * スペルカード4「禁忌「永夜の花嵐」」
+   * 正回転と逆回転の6腕螺旋が交錯する
+   */
+  sc4(t){
+    // 正逆6腕螺旋：8フレームごと
+    if(t%8===0){
+      this.shootSpiral(6,3.2,'#ff44cc',0.20);
+      for(let arm=0;arm<6;arm++){
+        const a=-this.spiralAngle+arm*(Math.PI/3);
+        this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*2.8,Math.sin(a)*2.8,'#aa44ff',6));
+      }
+    }
+    // 9-Way扇弾：120フレームごと
+    if(t%120===0) this.shootFanAimed(9,0.22,3.6,'#ff88cc');
+  }
+
+  /**
+   * スペルカード5「神霊「光の三位一体」」
+   * 3軸の正逆螺旋+全方位24弾+大扇弾の最終形態
+   */
+  sc5(t){
+    // 3軸正逆螺旋：6フレームごと（最終形態）
+    if(t%6===0){
+      const spd=3.0+Math.sin(t*0.04)*1.2;
+      this.shootSpiral(3,spd,'#00ffcc',0.25);
+      const spd2=2.5+Math.cos(t*0.06)*1.0;
+      for(let arm=0;arm<3;arm++){
+        const a=-this.spiralAngle+arm*(Math.PI*2/3);
+        this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*spd2,Math.sin(a)*spd2,'#ff8800',6));
+      }
+    }
+    // 全方位24弾：80フレームごと（神聖な輪）
+    if(t%80===0)  this.shootNWay(24,2.6,'#ffffff',t*0.02);
+    // 11-Way大扇：120フレームごと
+    if(t%120===0) this.shootFanAimed(11,0.18,4.2,'#66ffff');
+  }
+
+  /** スペルカードを次に進める */
+  nextSpellCard(){
+    this.currentCard++;
+    if(this.currentCard>=this.spellCards.length){ this.active=false; return; }
+    const c=this.spellCards[this.currentCard];
+    this.hp=c.hp; this.maxHp=c.maxHp;
+    // カード切り替え時は全弾消し（プレイヤーへの恩恵）
+    this.bullets=[];
+    // cardAnnounce=270フレーム（約9秒@30fps）大きく表示
+    this.cardAnnounce=270; this.cardTimer=0; this.patternTimer=0; this.spiralAngle=0;
+    // ceasefireTimer: この間は弾を撃たない（演出猶予）
+    this.ceasefireTimer = 90;
+  }
+
+  damage(dmg){
+    this.hp-=dmg;
+    if(this.hp<=0){ this.hp=0; this.nextSpellCard(); return true; } return false;
+  }
+
+  update(){
+    this.animTick++; this.patternTimer++; this.cardTimer++;
+    // 入場演出
+    if(this.entering){
+      this.y+=1.5;
+      if(this.y>=this.targetY){
+        this.y=this.targetY; this.entering=false;
+        // 入場直後も270フレームのアナウンス+90フレームの停戦を付与
+        this.cardAnnounce=270;
+        this.ceasefireTimer=90;
+      }
       return;
     }
+    if(!this.active) return;
+    if(this.cardAnnounce>0) this.cardAnnounce--;
+    // 停戦猶予カウントダウン（0より大きい間は弾を撃たない）
+    if(this.ceasefireTimer>0){ this.ceasefireTimer--; }
 
-    // --- sin波による横移動 ---
     this.moveTimer++;
-    this.x = CANVAS_W / 2 + Math.sin(this.moveTimer * 0.012) * 120;
+    this.x=CANVAS_W/2+Math.sin(this.moveTimer*0.012)*120;
 
-    // --- HPに応じたフェーズ切り替え ---
-    const hpR = this.hp / this.maxHp;
-    if (hpR < 0.5 && this.phase === 1) { this.phase = 2; this.patternTimer = 0; }
-    if (hpR < 0.2 && this.phase === 2) { this.phase = 3; }
-
-    // --- フェーズ別弾幕発射 ---
-    if (this.phase === 1) {
-      // フェーズ1: 螺旋 + 時々全方位
-      if (this.patternTimer % 4 === 0) this.shootSpiral();
-      if (this.patternTimer % 90 === 0) this.shootNWay(12, 2.5, '#ff4466', 0);
-
-    } else if (this.phase === 2) {
-      // フェーズ2: 4腕螺旋 + 扇状弾 + 全方位
-      if (this.patternTimer % 3 === 0) {
-        this.spiralAngle += 0.18;
-        for (let arm = 0; arm < 4; arm++) {
-          const a = this.spiralAngle + arm * (Math.PI / 2);
-          this.bullets.push(new EnemyBullet(
-            this.x, this.y, Math.cos(a)*3.0, Math.sin(a)*3.0, '#ff44aa', 6
-          ));
-        }
-      }
-      if (this.patternTimer % 70  === 0) this.shootFanAimed(7, 0.3);
-      if (this.patternTimer % 120 === 0) this.shootNWay(16, 3.0, '#aa44ff', this.patternTimer * 0.01);
-
-    } else if (this.phase === 3) {
-      // フェーズ3（最終形態）: 6腕螺旋 + 扇状弾 + 大量全方位
-      if (this.patternTimer % 2 === 0) {
-        this.spiralAngle += 0.2;
-        for (let arm = 0; arm < 6; arm++) {
-          const a = this.spiralAngle + arm * (Math.PI / 3);
-          const spd = 3.0 + Math.sin(this.patternTimer * 0.05) * 0.5;
-          this.bullets.push(new EnemyBullet(
-            this.x, this.y, Math.cos(a)*spd, Math.sin(a)*spd, '#ffdd00', 6
-          ));
-        }
-      }
-      if (this.patternTimer % 50 === 0) {
-        this.shootFanAimed(9, 0.25);
-        this.shootNWay(20, 2.8, '#ff6600', this.spiralAngle);
-      }
+    // 停戦猶予が終わったら弾幕を発射
+    if(this.ceasefireTimer===0){
+      const method=this.card.method;
+      if(this[method]) this[method](this.cardTimer);
     }
 
-    // 弾の更新と不要弾の除去
-    this.bullets.forEach(b => b.update());
-    this.bullets = this.bullets.filter(b => b.active);
+    this.bullets.forEach(b=>b.update());
+    this.bullets=this.bullets.filter(b=>b.active);
   }
 
-  damage(dmg) {
-    this.hp -= dmg;
-    if (this.hp <= 0) { this.hp = 0; this.active = false; return true; }
-    return false;
-  }
+  draw(ctx){
+    if(!this.active) return;
+    // スペルカード背景演出（薄い色を全画面に敷く）
+    ctx.fillStyle=`hsla(${this.card.bgHue},80%,50%,0.06)`;
+    ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
 
-  draw(ctx) {
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    const t = this.animTick;
+    ctx.save(); ctx.translate(this.x,this.y);
+    const t=this.animTick, card=this.card;
 
-    // 外側の回転リング（2重）
-    for (let ring = 0; ring < 2; ring++) {
-      const rR  = this.radius + 15 + ring * 12;
-      const rot = t * (ring % 2 === 0 ? 0.02 : -0.015);
-      const seg = 8 + ring * 4;
+    // 外側の回転リング（カード色に対応）
+    for(let ring=0;ring<3;ring++){
+      const rR=this.radius+18+ring*14;
+      const rot=t*(ring%2===0?0.025:-0.018);
+      const seg=6+ring*2;
       ctx.beginPath();
-      for (let i = 0; i < seg; i++) {
-        const a = (Math.PI * 2 / seg) * i + rot;
-        const rx = Math.cos(a) * rR, ry = Math.sin(a) * rR;
-        if (i === 0) ctx.moveTo(rx, ry); else ctx.lineTo(rx, ry);
+      for(let i=0;i<seg;i++){
+        const a=(Math.PI*2/seg)*i+rot;
+        if(i===0) ctx.moveTo(Math.cos(a)*rR,Math.sin(a)*rR);
+        else ctx.lineTo(Math.cos(a)*rR,Math.sin(a)*rR);
       }
       ctx.closePath();
-      const rc = this.phase === 3 ? '#ff8800' : (this.phase === 2 ? '#ff44aa' : '#8844ff');
-      ctx.strokeStyle = rc; ctx.lineWidth = 2;
-      ctx.shadowColor = rc; ctx.shadowBlur = 12;
-      ctx.stroke();
+      ctx.strokeStyle=`hsla(${card.bgHue+ring*30},100%,70%,${0.5-ring*0.1})`;
+      ctx.lineWidth=2; ctx.shadowColor=`hsl(${card.bgHue},100%,70%)`; ctx.shadowBlur=15; ctx.stroke();
     }
 
-    // 本体（グラデーション円）
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius);
-    const cc   = this.phase === 3 ? '#ff4400' : (this.phase === 2 ? '#cc00aa' : '#8800ff');
-    grad.addColorStop(0, '#ffffff');
-    grad.addColorStop(0.3, cc);
-    grad.addColorStop(1, 'rgba(50,0,100,0.8)');
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = grad; ctx.shadowColor = cc; ctx.shadowBlur = 20;
-    ctx.fill();
+    // 本体グラデーション円
+    const grad=ctx.createRadialGradient(0,0,0,0,0,this.radius);
+    grad.addColorStop(0,'#ffffff');
+    grad.addColorStop(0.3,`hsl(${card.bgHue},90%,60%)`);
+    grad.addColorStop(1,`hsla(${card.bgHue},80%,20%,0.8)`);
+    ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.shadowColor=`hsl(${card.bgHue},100%,60%)`; ctx.shadowBlur=25; ctx.fill();
 
-    // 目（プレイヤーを追跡する瞳）
-    ctx.beginPath();
-    ctx.arc(0, -5, 10, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.shadowBlur = 0;
-    ctx.fill();
-    const ea = Math.atan2(this.player.y - this.y, this.player.x - this.x);
-    const px = Math.cos(ea)*4, py = Math.sin(ea)*4 - 5;
-    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2); ctx.fillStyle = '#cc0000'; ctx.fill();
-    ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI*2); ctx.fillStyle = '#000';    ctx.fill();
+    // プレイヤーを追跡する瞳
+    ctx.beginPath(); ctx.arc(0,-6,11,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.92)'; ctx.shadowBlur=0; ctx.fill();
+    const ea=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    const px=Math.cos(ea)*4.5, py=Math.sin(ea)*4.5-6;
+    ctx.beginPath(); ctx.arc(px,py,5.5,0,Math.PI*2);
+    ctx.fillStyle=`hsl(${card.bgHue},90%,35%)`; ctx.fill();
+    ctx.beginPath(); ctx.arc(px,py,2.5,0,Math.PI*2); ctx.fillStyle='#000'; ctx.fill();
+    ctx.beginPath(); ctx.arc(px+1.5,py-1.5,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
 
     ctx.restore();
-
-    // HPバー
     this.drawHPBar(ctx);
-
-    // 弾を描画
-    this.bullets.forEach(b => b.draw(ctx));
+    this.drawSpellCardName(ctx);
+    this.bullets.forEach(b=>b.draw(ctx));
   }
 
-  /** HPバーをCanvas上部に描画 */
-  drawHPBar(ctx) {
-    const bW = CANVAS_W - 40, bH = 10, bX = 20, bY = 8;
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(bX - 2, bY - 2, bW + 4, bH + 4);
+  drawHPBar(ctx){
+    const card=this.card;
+    const bW=CANVAS_W-40, bH=10, bX=20, bY=8;
+    ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(bX-2,bY-2,bW+4,bH+4);
+    const hpR=clamp(this.hp/this.maxHp,0,1);
+    ctx.fillStyle=`hsl(${card.bgHue},90%,55%)`; ctx.shadowColor=ctx.fillStyle; ctx.shadowBlur=8;
+    ctx.fillRect(bX,bY,bW*hpR,bH);
+    ctx.shadowBlur=0; ctx.strokeStyle=`hsla(${card.bgHue},60%,70%,0.6)`; ctx.lineWidth=1;
+    ctx.strokeRect(bX,bY,bW,bH);
+    // カード残枚数インジケーター（右端の丸）
+    for(let i=0;i<this.spellCards.length;i++){
+      const cx=bX+bW-12-i*14;
+      ctx.beginPath(); ctx.arc(cx,bY+bH/2,4,0,Math.PI*2);
+      ctx.fillStyle=i===this.currentCard?`hsl(${card.bgHue},100%,70%)`:i>this.currentCard?'#333344':'#666688';
+      ctx.shadowColor=i===this.currentCard?`hsl(${card.bgHue},100%,70%)`:'transparent';
+      ctx.shadowBlur=i===this.currentCard?8:0; ctx.fill();
+    }
+    ctx.fillStyle='#ddd'; ctx.font='bold 9px monospace'; ctx.textAlign='left'; ctx.shadowBlur=0;
+    ctx.fillText(`SPELL ${this.currentCard+1}/${this.spellCards.length}`,bX,bY-2);
+  }
 
-    const hpR  = this.hp / this.maxHp;
-    const hpC  = `hsl(${120 * hpR}, 90%, 50%)`;
-    ctx.fillStyle = hpC; ctx.shadowColor = hpC; ctx.shadowBlur = 6;
-    ctx.fillRect(bX, bY, bW * hpR, bH);
+  /** スペルカード名の大演出（カード切り替え時に全画面を使って表示） */
+  drawSpellCardName(ctx){
+    if(this.cardAnnounce<=0) return;
+    const card = this.card;
+    const a    = this.cardAnnounce; // 残りフレーム数（最大270）
 
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#888'; ctx.lineWidth = 1;
-    ctx.strokeRect(bX, bY, bW, bH);
+    // ── フェーズ分け ──────────────────────────
+    // 270〜210: フェードイン (60f)
+    // 210〜 60: 全力表示   (150f)
+    //  60〜  0: フェードアウト (60f)
+    let alpha;
+    if(a > 210)       alpha = (270 - a) / 60;       // 0→1
+    else if(a > 60)   alpha = 1.0;
+    else              alpha = a / 60;                 // 1→0
+    alpha = clamp(alpha, 0, 1);
 
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('BOSS HP', bX, bY - 2);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    // ── 全画面を暗く覆うオーバーレイ ──────────
+    ctx.fillStyle = `hsla(${card.bgHue},30%,5%,0.82)`;
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // ── 上下の装飾ライン ──────────────────────
+    const lineY1 = CANVAS_H/2 - 72, lineY2 = CANVAS_H/2 + 72;
+    // 光る横線
+    for(const ly of [lineY1, lineY2]){
+      const grad = ctx.createLinearGradient(0, ly, CANVAS_W, ly);
+      grad.addColorStop(0,   'transparent');
+      grad.addColorStop(0.2, `hsl(${card.bgHue},100%,70%)`);
+      grad.addColorStop(0.8, `hsl(${card.bgHue},100%,70%)`);
+      grad.addColorStop(1,   'transparent');
+      ctx.fillStyle   = grad;
+      ctx.shadowColor = `hsl(${card.bgHue},100%,70%)`;
+      ctx.shadowBlur  = 12;
+      ctx.fillRect(0, ly - 1, CANVAS_W, 2);
+    }
+
+    // ── カード番号バッジ ──────────────────────
+    const badgeX = CANVAS_W/2;
+    const badgeY = CANVAS_H/2 - 52;
+    ctx.font      = 'bold 11px monospace';
+    ctx.fillStyle = `hsl(${card.bgHue},100%,75%)`;
+    ctx.shadowColor= `hsl(${card.bgHue},100%,60%)`;
+    ctx.shadowBlur = 10;
+    ctx.textAlign  = 'center';
+    ctx.fillText(
+      `✦ SPELL CARD  ${this.currentCard+1} / ${this.spellCards.length} ✦`,
+      badgeX, badgeY
+    );
+
+    // ── 日本語スペルカード名（大きく・グロー付き）──
+    // 文字サイズは最大26pxだが、名前が長い場合は少し小さくする
+    const nameFontSize = card.name.length > 10 ? 20 : 26;
+    ctx.font        = `bold ${nameFontSize}px 'MS Gothic', 'Hiragino Kaku Gothic ProN', serif`;
+    ctx.fillStyle   = '#ffffff';
+    ctx.shadowColor = `hsl(${card.bgHue},100%,85%)`;
+    ctx.shadowBlur  = 22;
+    ctx.textAlign   = 'center';
+    ctx.fillText(card.name, CANVAS_W/2, CANVAS_H/2 + 8);
+
+    // ── 二重グロー効果（同じ文字を重ねてにじみを強調）──
+    ctx.fillStyle   = `hsla(${card.bgHue},100%,90%,0.3)`;
+    ctx.shadowBlur  = 40;
+    ctx.fillText(card.name, CANVAS_W/2, CANVAS_H/2 + 8);
+
+    // ── 英語サブタイトル ──────────────────────
+    ctx.font        = '11px monospace';
+    ctx.fillStyle   = `hsla(${card.bgHue},70%,80%,0.9)`;
+    ctx.shadowBlur  = 8;
+    ctx.fillText(card.nameEn, CANVAS_W/2, CANVAS_H/2 + 36);
+
+    // ── 停戦中のガイドテキスト（停戦が残っている間のみ）──
+    if(this.ceasefireTimer > 0 && a > 60){
+      const blink = Math.floor(this.animTick / 8) % 2 === 0;
+      if(blink){
+        ctx.font      = 'bold 11px monospace';
+        ctx.fillStyle = `rgba(255,255,200,0.75)`;
+        ctx.shadowBlur= 0;
+        ctx.fillText('— 準備して —', CANVAS_W/2, CANVAS_H/2 + 60);
+      }
+    }
+
+    // ── 四隅の装飾コーナー ────────────────────
+    const corners = [[30,lineY1-8],[CANVAS_W-30,lineY1-8],[30,lineY2+8],[CANVAS_W-30,lineY2+8]];
+    corners.forEach(([cx,cy]) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI*2);
+      ctx.fillStyle   = `hsl(${card.bgHue},100%,80%)`;
+      ctx.shadowColor = `hsl(${card.bgHue},100%,70%)`;
+      ctx.shadowBlur  = 8;
+      ctx.fill();
+    });
+
+    ctx.restore();
   }
 }
 
 
 // ============================================================
-//  StarField クラス - 流れる背景の星
+//  StarField - 流れる背景の星
 // ============================================================
 class StarField {
-  constructor() {
-    this.stars = [];
-    for (let i = 0; i < 120; i++) {
+  constructor(){
+    this.stars=[];
+    for(let i=0;i<130;i++){
       this.stars.push({
-        x:          randFloat(0, CANVAS_W),
-        y:          randFloat(0, CANVAS_H),
-        speed:      randFloat(0.3, 2.0),
-        radius:     randFloat(0.3, 1.5),
-        brightness: randFloat(0.3, 1.0),
+        x:randFloat(0,CANVAS_W),y:randFloat(0,CANVAS_H),
+        speed:randFloat(0.3,2.2),radius:randFloat(0.3,1.6),
+        brightness:randFloat(0.3,1.0),hue:randInt(180,280),
       });
     }
   }
-
-  update() {
-    this.stars.forEach(s => {
-      s.y += s.speed;
-      if (s.y > CANVAS_H + 2) { s.y = -2; s.x = randFloat(0, CANVAS_W); }
-    });
-  }
-
-  draw(ctx) {
-    this.stars.forEach(s => {
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${s.brightness})`;
-      ctx.fill();
-    });
-  }
+  update(){ this.stars.forEach(s=>{ s.y+=s.speed; if(s.y>CANVAS_H+2){s.y=-2;s.x=randFloat(0,CANVAS_W);} }); }
+  draw(ctx){ this.stars.forEach(s=>{
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.radius,0,Math.PI*2);
+    ctx.fillStyle=`hsla(${s.hue},60%,95%,${s.brightness})`; ctx.fill();
+  }); }
 }
 
 
 // ============================================================
-//  Game クラス - ゲーム全体の管理（メインクラス）
+//  Game - メインゲームコントローラー
 // ============================================================
 class Game {
-  constructor() {
-    this.canvas    = document.getElementById('gameCanvas');
-    this.ctx       = this.canvas.getContext('2d');
-    this.input     = new InputManager();
-    this.starField = new StarField();
-
-    // ゲーム状態
-    this.state   = STATE.START;
-    this.score   = 0;
-    this.lives   = 3;
-    this.hiScore = 0;
-
-    // オブジェクト配列
-    this.enemies      = [];
-    this.boss         = null;
-    this.particles    = [];
-    this.bossDefeated = false;
-
-    // 敵出現タイマー
-    this.enemySpawnTimer    = 0;
-    this.enemySpawnInterval = 90; // 90フレームごとに出現
-
-    // UI用タイマー
-    this.uiTick    = 0;
-    this.flashOn   = true;
-    this.flashTimer = 0;
-
-    this.player = new Player();
-
-    // ゲームループ開始
+  constructor(){
+    this.canvas=document.getElementById('gameCanvas');
+    this.ctx=this.canvas.getContext('2d');
+    this.input=new InputManager();
+    this.starField=new StarField();
+    this.state=STATE.START;
+    this.score=0; this.lives=3; this.hiScore=0;
+    this.enemies=[]; this.boss=null; this.particles=[];
+    this.bombEffects=[]; this.bossDefeated=false;
+    // ★ 雑魚敵弾の共通プール（敵が消えても弾はここに残り続ける）
+    this.enemyBullets=[];
+    this.enemySpawnTimer=0; this.enemySpawnInterval=68;
+    this.spawnWave=0;
+    this.uiTick=0; this.flashOn=true; this.flashTimer=0;
+    this.player=new Player();
     this.loop();
   }
 
-  /** ゲーム変数をリセット */
-  reset() {
-    this.score       = 0;
-    this.lives       = 3;
-    this.player      = new Player();
-    this.enemies     = [];
-    this.boss        = null;
-    this.particles   = [];
-    this.bossDefeated = false;
-    this.enemySpawnTimer = 0;
+  reset(){
+    this.score=0; this.lives=3;
+    this.player=new Player();
+    this.enemies=[]; this.boss=null; this.particles=[];
+    this.bombEffects=[]; this.enemyBullets=[]; this.bossDefeated=false;
+    this.enemySpawnTimer=0; this.spawnWave=0;
   }
 
-  // ============================================================
-  //  メインループ - requestAnimationFrameで毎フレーム呼ばれる
-  // ============================================================
-  loop() {
-    this.update();
-    this.draw();
-    requestAnimationFrame(() => this.loop());
+  loop(){
+    // ============================================================
+    //  フレームレート固定：performance.now()で経過時間を計測し
+    //  1000/30 ms = 約33ms ごとにのみ update/draw を実行する
+    //  これにより画面リフレッシュレートに依存せず30FPS固定になる
+    // ============================================================
+    const TARGET_INTERVAL = 1000 / 60; // 60FPS = 16.7ms/frame
+    const now = performance.now();
+    if (!this._lastTime) this._lastTime = now;
+    const elapsed = now - this._lastTime;
+
+    if (elapsed >= TARGET_INTERVAL) {
+      // 余剰時間をずらして蓄積ズレを防ぐ
+      this._lastTime = now - (elapsed % TARGET_INTERVAL);
+      this.update();
+      this.draw();
+    }
+    requestAnimationFrame(()=>this.loop());
   }
 
-  // ============================================================
-  //  更新処理
-  // ============================================================
-  update() {
-    this.uiTick++;
-    this.starField.update();
-
-    switch (this.state) {
+  update(){
+    this.uiTick++; this.starField.update();
+    switch(this.state){
       case STATE.START:    this.updateStart();    break;
       case STATE.PLAYING:  this.updatePlaying();  break;
       case STATE.GAMEOVER: this.updateGameOver(); break;
     }
-
     this.input.clearJustPressed();
   }
 
-  updateStart() {
-    if (this.input.isJustPressed('Space')) {
-      this.reset();
-      this.state = STATE.PLAYING;
-    }
-    this.flashTimer++;
-    if (this.flashTimer > 30) { this.flashOn = !this.flashOn; this.flashTimer = 0; }
+  updateStart(){
+    if(this.input.isJustPressed('Space')){ this.reset(); this.state=STATE.PLAYING; }
+    this.flashTimer++; if(this.flashTimer>28){this.flashOn=!this.flashOn;this.flashTimer=0;}
   }
 
-  updateGameOver() {
-    if (this.input.isJustPressed('KeyR')) {
-      this.reset();
-      this.state = STATE.PLAYING;
-    }
+  updateGameOver(){
+    if(this.input.isJustPressed('KeyR')){ this.reset(); this.state=STATE.PLAYING; }
   }
 
-  updatePlaying() {
-    // 自機の更新
-    this.player.update(this.input);
+  updatePlaying(){
+    // 自機更新（ボム使用のためgameオブジェクトを渡す）
+    this.player.update(this.input, this);
 
-    // 敵出現（ボスがいない間）
-    if (!this.boss) {
+    // --- 敵出現（ボスがいない間）---
+    if(!this.boss){
       this.enemySpawnTimer++;
-      if (this.enemySpawnTimer >= this.enemySpawnInterval) {
-        this.enemySpawnTimer = 0;
-        this.spawnEnemy();
+      if(this.enemySpawnTimer>=this.enemySpawnInterval){
+        this.enemySpawnTimer=0; this.spawnWave++;
+        this.spawnEnemyWave();
       }
     }
 
-    // ボス出現（スコア2000到達時）
-    if (this.score >= 2000 && !this.boss && !this.bossDefeated) {
-      this.enemies = []; // 雑魚を全滅
-      this.boss = new Boss(this.player);
+    // --- ボス出現（スコア3000）---
+    if(this.score>=3000&&!this.boss&&!this.bossDefeated){
+      this.enemies=[]; this.boss=new Boss(this.player);
     }
 
-    // 敵の更新
-    this.enemies.forEach(e => e.update());
-    this.enemies = this.enemies.filter(e => e.active);
+    this.enemies.forEach(e=>e.update());
+    this.enemies=this.enemies.filter(e=>e.active);
 
-    // ボスの更新
-    if (this.boss) {
+    // ★ 共通プールの敵弾を毎フレーム更新し、画面外のものを除去
+    this.enemyBullets.forEach(b=>b.update());
+    this.enemyBullets=this.enemyBullets.filter(b=>b.active);
+
+    if(this.boss){
       this.boss.update();
-      if (!this.boss.active) {
-        this.score += this.boss.score;
-        this.spawnExplosion(this.boss.x, this.boss.y, '#ff8800', 60);
-        this.boss = null;
-        this.bossDefeated = true;
+      if(!this.boss.active){
+        this.score+=this.boss.score;
+        this.spawnExplosion(this.boss.x,this.boss.y,'#ff8800',80);
+        this.boss=null; this.bossDefeated=true;
       }
     }
 
-    // パーティクルの更新
-    this.particles.forEach(p => p.update());
-    this.particles = this.particles.filter(p => p.active);
-
-    // 当たり判定
+    this.bombEffects.forEach(b=>b.update());
+    this.bombEffects=this.bombEffects.filter(b=>b.active);
+    this.particles.forEach(p=>p.update());
+    this.particles=this.particles.filter(p=>p.active);
     this.checkCollisions();
   }
 
-  spawnEnemy() {
-    this.enemies.push(new Enemy(
-      randFloat(40, CANVAS_W - 40), -20, this.player
-    ));
+  /** ウェーブ数に応じて異なるタイプの敵を出現させる */
+  spawnEnemyWave(){
+    const w=this.spawnWave;
+    if(w%12===0){ this.spawnEnemy('fortress'); }
+    else if(w%5===0){ this.spawnEnemy('spread'); this.spawnEnemy('spread',80); }
+    else if(w%3===0){ this.spawnEnemy('fast');   this.spawnEnemy('fast',60); }
+    else { this.spawnEnemy('normal'); if(this.score>=1500) this.spawnEnemy('normal',80); }
   }
 
-  /**
-   * 爆発エフェクトを生成
-   * @param {number} x
-   * @param {number} y
-   * @param {string} color
-   * @param {number} count
-   */
-  spawnExplosion(x, y, color, count = 20) {
-    for (let i = 0; i < count; i++) this.particles.push(new Particle(x, y, color));
+  spawnEnemy(type='normal', xOffset=0){
+    const x=clamp(randFloat(40,CANVAS_W-40)+xOffset,30,CANVAS_W-30);
+    // ★ enemyBullets（共通プール）を渡すことで、撃破後も弾が残る
+    this.enemies.push(new Enemy(x,-25,this.player,type,this.enemyBullets));
+  }
+
+  spawnExplosion(x,y,color,count=20){
+    for(let i=0;i<count;i++) this.particles.push(new Particle(x,y,color));
   }
 
   // ============================================================
-  //  当たり判定（円と円の衝突判定）
-  //  判定式: 2点間の距離 < r1 + r2
+  //  ボム発動処理
+  //  - 全敵弾を消す（メモリリーク防止も兼ねてactiveをfalseに）
+  //  - ボムエフェクト生成
+  //  - 雑魚敵を即撃破・ボスに大ダメージ
   // ============================================================
-  checkCollisions() {
-    const player = this.player;
+  activateBomb(bx, by){
+    this.bombEffects.push(new BombEffect(bx, by));
+    // ★ 共通プールの雑魚敵弾を全消去
+    this.enemyBullets.forEach(b=>{b.active=false;});
+    if(this.boss) this.boss.bullets.forEach(b=>{b.active=false;});
+    this.enemies.forEach(e=>{ e.damage(9999); this.spawnExplosion(e.x,e.y,'#cc88ff',15); this.score+=e.score; });
+    this.enemies=this.enemies.filter(e=>e.active);
+    if(this.boss&&!this.boss.entering){
+      this.boss.damage(80);
+      this.spawnExplosion(this.boss.x,this.boss.y,'#ff88ff',20);
+    }
+    for(let i=0;i<30;i++){
+      this.particles.push(new Particle(randFloat(0,CANVAS_W),randFloat(0,CANVAS_H),`hsl(${randInt(240,320)},100%,70%)`,randFloat(3,8)));
+    }
+  }
 
-    // 全敵弾を収集
-    let allEB = [];
-    this.enemies.forEach(e => allEB.push(...e.bullets));
-    if (this.boss) allEB.push(...this.boss.bullets);
+  // ============================================================
+  //  当たり判定（円と円の衝突判定: 距離 < r1 + r2）
+  // ============================================================
+  checkCollisions(){
+    const player=this.player;
+    // 敵弾＝雑魚共通プール＋ボス弾をまとめて判定
+    const allEB = this.boss
+      ? [...this.enemyBullets, ...this.boss.bullets]
+      : this.enemyBullets;
 
-    // 1. 敵弾 vs プレイヤー（プレイヤーのhitRadiusは極小）
-    if (player.invincible === 0) {
-      for (const eb of allEB) {
-        if (!eb.active) continue;
-        if (dist(player.x, player.y, eb.x, eb.y) < player.hitRadius + eb.hitRadius) {
-          eb.active = false;
-          const wasHit = player.hit();
-          if (wasHit) {
-            this.lives--;
-            this.spawnExplosion(player.x, player.y, '#88ccff', 15);
-            if (this.lives <= 0) {
-              if (this.score > this.hiScore) this.hiScore = this.score;
-              this.state = STATE.GAMEOVER;
-            }
+    // 1. 敵弾 vs 自機（hitRadiusは極小な3px）
+    if(player.invincible===0){
+      for(const eb of allEB){
+        if(!eb.active) continue;
+        if(dist(player.x,player.y,eb.x,eb.y)<player.hitRadius+eb.hitRadius){
+          eb.active=false;
+          if(player.hit()){
+            this.lives--; this.spawnExplosion(player.x,player.y,'#88ccff',15);
+            if(this.lives<=0){ if(this.score>this.hiScore) this.hiScore=this.score; this.state=STATE.GAMEOVER; }
+            break;
           }
+        }
+      }
+    }
+
+    // 2. 自機弾 vs 雑魚敵本体（弾には当たらない）
+    for(const pb of player.bullets){
+      if(!pb.active) continue;
+      for(const e of this.enemies){
+        if(!e.active) continue;
+        if(dist(pb.x,pb.y,e.x,e.y)<pb.radius+e.radius){
+          pb.active=false;
+          if(e.damage(pb.power)){ this.score+=e.score; this.spawnExplosion(e.x,e.y,'#ff88ff',18); }
+          else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
           break;
         }
       }
     }
 
-    // 2. 自機弾 vs 雑魚敵
-    for (const pb of player.bullets) {
-      if (!pb.active) continue;
-      for (const e of this.enemies) {
-        if (!e.active) continue;
-        if (dist(pb.x, pb.y, e.x, e.y) < pb.radius + e.radius) {
-          pb.active = false;
-          if (e.damage(pb.power)) {
-            this.score += e.score;
-            this.spawnExplosion(e.x, e.y, '#ff88ff', 20);
-          } else {
-            this.spawnExplosion(pb.x, pb.y, '#ffffff', 3);
-          }
-          break;
-        }
-      }
-    }
-
-    // 3. 自機弾 vs ボス
-    if (this.boss && !this.boss.entering) {
-      for (const pb of player.bullets) {
-        if (!pb.active) continue;
-        if (dist(pb.x, pb.y, this.boss.x, this.boss.y) < pb.radius + this.boss.radius) {
-          pb.active = false;
-          if (!this.boss.damage(pb.power)) {
-            this.spawnExplosion(pb.x, pb.y, '#ffffff', 2);
-          }
+    // 3. 自機弾 vs ボス本体
+    if(this.boss&&!this.boss.entering){
+      for(const pb of player.bullets){
+        if(!pb.active) continue;
+        if(dist(pb.x,pb.y,this.boss.x,this.boss.y)<pb.radius+this.boss.radius){
+          pb.active=false;
+          if(!this.boss.damage(pb.power)) this.spawnExplosion(pb.x,pb.y,'#ffffff',2);
         }
       }
     }
@@ -1037,220 +1085,157 @@ class Game {
   // ============================================================
   //  描画処理
   // ============================================================
-  draw() {
-    const ctx = this.ctx;
-    ctx.fillStyle = '#050010';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
+  draw(){
+    const ctx=this.ctx;
+    ctx.fillStyle='#050010'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
     this.starField.draw(ctx);
-
-    switch (this.state) {
+    switch(this.state){
       case STATE.START:    this.drawStart(ctx);    break;
       case STATE.PLAYING:  this.drawPlaying(ctx);  break;
       case STATE.GAMEOVER: this.drawGameOver(ctx); break;
     }
   }
 
-  // --- スタート画面描画 ---
-  drawStart(ctx) {
-    const cx = CANVAS_W / 2;
-    const t  = this.uiTick;
-
-    // 背景グロー
-    const glow = ctx.createRadialGradient(cx, 220, 0, cx, 220, 200);
-    glow.addColorStop(0, 'rgba(120,60,200,0.3)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-    ctx.save();
-    ctx.textAlign = 'center';
-
-    // サブタイトル
-    ctx.font = 'bold 14px serif';
-    ctx.fillStyle = '#cc99ff';
-    ctx.shadowColor = '#aa66ff'; ctx.shadowBlur = 10;
-    ctx.fillText('東方風弾幕シューティング', cx, 160);
-
-    // メインタイトル（波打つ文字）
-    const colors = ['#ff99cc','#cc66ff','#99aaff','#66ddff','#99ffcc','#ffff99','#ff99aa'];
-    const chars  = '幻想郷の戦い';
-    const charW  = 30;
-    const startX = cx - (chars.length * charW / 2) + charW / 2;
-    ctx.font = 'bold 30px serif';
-    for (let i = 0; i < chars.length; i++) {
-      const wave = Math.sin(t * 0.07 + i * 0.55) * 5;
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.shadowColor = colors[i % colors.length]; ctx.shadowBlur = 15;
-      ctx.fillText(chars[i], startX + i * charW, 210 + wave);
+  drawStart(ctx){
+    const cx=CANVAS_W/2, t=this.uiTick;
+    const glow=ctx.createRadialGradient(cx,220,0,cx,220,200);
+    glow.addColorStop(0,'rgba(120,60,200,0.35)'); glow.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=glow; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    ctx.save(); ctx.textAlign='center';
+    ctx.font='bold 13px serif'; ctx.fillStyle='#cc88ff'; ctx.shadowColor='#aa55ff'; ctx.shadowBlur=10;
+    ctx.fillText('東方風弾幕シューティング',cx,155);
+    const colors=['#ff99cc','#cc66ff','#99aaff','#66ddff','#99ffcc','#ffff88','#ff99aa'];
+    const chars='幻想郷の戦い', charW=30, startX=cx-(chars.length*charW/2)+charW/2;
+    ctx.font='bold 30px serif';
+    for(let i=0;i<chars.length;i++){
+      const wave=Math.sin(t*0.07+i*0.55)*5;
+      ctx.fillStyle=colors[i%colors.length]; ctx.shadowColor=colors[i%colors.length]; ctx.shadowBlur=14;
+      ctx.fillText(chars[i],startX+i*charW,210+wave);
     }
-
-    // 英語サブ
-    ctx.font = '12px monospace';
-    ctx.fillStyle = '#8888bb'; ctx.shadowBlur = 0;
-    ctx.fillText('~ Battle in Gensokyo ~', cx, 235);
-
-    // 区切り線
-    ctx.strokeStyle = 'rgba(150,100,255,0.4)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(cx-140, 250); ctx.lineTo(cx+140, 250); ctx.stroke();
-
-    // Hi-Score
-    ctx.font = '13px monospace'; ctx.fillStyle = '#ffdd88';
-    ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8, '0')}`, cx, 270);
-
-    // 操作説明
-    ctx.font = '11px monospace'; ctx.fillStyle = '#9999bb';
-    ctx.fillText('[ Z / Space ] Shot     [ Shift ] Slow Mode', cx, 310);
-    ctx.fillText('[ Arrow Keys ] Move', cx, 330);
-    ctx.fillText('Shiftを押すと当たり判定が見えます', cx, 355);
-
-    // 点滅する「Press SPACE to Start」
-    if (this.flashOn) {
-      ctx.font = 'bold 16px monospace';
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#aa88ff'; ctx.shadowBlur = 15;
-      ctx.fillText('Press SPACE to Start', cx, 410);
+    ctx.font='11px monospace'; ctx.fillStyle='#8888bb'; ctx.shadowBlur=0;
+    ctx.fillText('~ Battle in Gensokyo ~',cx,234);
+    ctx.strokeStyle='rgba(150,80,255,0.4)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx-140,248); ctx.lineTo(cx+140,248); ctx.stroke();
+    ctx.font='13px monospace'; ctx.fillStyle='#ffdd88';
+    ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8,'0')}`,cx,268);
+    ctx.font='11px monospace'; ctx.fillStyle='#9999bb';
+    ctx.fillText('[ Z/Space ] Shot  [ Shift ] Slow  [ X ] Bomb',cx,306);
+    ctx.fillText('[ Arrow Keys ] Move',cx,325);
+    ctx.fillText('ボム3回まで使用可 | Shiftで当たり判定可視化',cx,350);
+    if(this.flashOn){
+      ctx.font='bold 16px monospace'; ctx.fillStyle='#ffffff';
+      ctx.shadowColor='#aa88ff'; ctx.shadowBlur=15;
+      ctx.fillText('Press SPACE to Start',cx,400);
     }
-
-    // 装飾パーティクル
-    ctx.shadowBlur = 0;
-    for (let i = 0; i < 8; i++) {
-      const a  = (Math.PI * 2 / 8) * i + t * 0.01;
-      const rx = cx + Math.cos(a + t*0.005) * 170;
-      const ry = 300 + Math.sin(a * 2) * 80;
-      ctx.beginPath();
-      ctx.arc(rx, ry, 1.5, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(180,120,255,${0.3 + Math.sin(t*0.05+i)*0.2})`;
-      ctx.fill();
+    ctx.shadowBlur=0;
+    for(let i=0;i<10;i++){
+      const a=(Math.PI*2/10)*i+t*0.01;
+      ctx.beginPath(); ctx.arc(cx+Math.cos(a+t*0.006)*175,300+Math.sin(a*1.5)*75,1.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(180,100,255,${0.25+Math.sin(t*0.05+i)*0.2})`; ctx.fill();
     }
-
     ctx.restore();
   }
 
-  // --- ゲームプレイ画面描画 ---
-  drawPlaying(ctx) {
-    this.particles.forEach(p => p.draw(ctx));
-    this.enemies.forEach(e => e.draw(ctx));
-    if (this.boss) this.boss.draw(ctx);
-    this.player.draw(ctx, this.input);
+  drawPlaying(ctx){
+    this.particles.forEach(p=>p.draw(ctx));
+    this.bombEffects.forEach(b=>b.draw(ctx));
+    // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
+    this.enemyBullets.forEach(b=>b.draw(ctx));
+    this.enemies.forEach(e=>e.draw(ctx));
+    if(this.boss) this.boss.draw(ctx);
+    this.player.draw(ctx,this.input);
     this.drawHUD(ctx);
-
-    // ボス出現警告
-    if (this.score >= 1800 && this.score < 2000 && !this.boss && !this.bossDefeated) {
-      this.drawWarning(ctx);
-    }
-
-    // クリアメッセージ
-    if (this.bossDefeated && !this.boss) this.drawClear(ctx);
+    if(this.score>=2600&&this.score<3000&&!this.boss&&!this.bossDefeated) this.drawWarning(ctx);
+    if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
   }
 
-  /** HUD（スコア・残機）を描画 */
-  drawHUD(ctx) {
+  /** HUD：スコア・ボム残機（✦）・残機（♥）を描画 */
+  drawHUD(ctx){
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,20,0.75)';
-    ctx.fillRect(0, CANVAS_H - 40, CANVAS_W, 40);
-
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#aaaacc'; ctx.shadowBlur = 0;
-    ctx.fillText('SCORE', 10, CANVAS_H - 24);
-    ctx.font = 'bold 16px monospace'; ctx.fillStyle = '#ffdd88';
-    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 6;
-    ctx.fillText(this.score.toString().padStart(8, '0'), 10, CANVAS_H - 7);
-
-    ctx.textAlign = 'right';
-    ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#aaaacc'; ctx.shadowBlur = 0;
-    ctx.fillText('LIVES', CANVAS_W - 10, CANVAS_H - 24);
-    for (let i = 0; i < this.lives; i++) {
-      ctx.font = '18px serif'; ctx.fillStyle = '#ff4488';
-      ctx.shadowColor = '#ff0044'; ctx.shadowBlur = 6;
-      ctx.fillText('♥', CANVAS_W - 18 - i * 22, CANVAS_H - 6);
+    ctx.fillStyle='rgba(0,0,20,0.78)'; ctx.fillRect(0,CANVAS_H-44,CANVAS_W,44);
+    // スコア
+    ctx.textAlign='left';
+    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
+    ctx.fillText('SCORE',10,CANVAS_H-28);
+    ctx.font='bold 15px monospace'; ctx.fillStyle='#ffdd88';
+    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=6;
+    ctx.fillText(this.score.toString().padStart(8,'0'),10,CANVAS_H-12);
+    // ボム残機（✦マーク）
+    ctx.textAlign='center';
+    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
+    ctx.fillText('BOMB',CANVAS_W/2,CANVAS_H-28);
+    for(let i=0;i<this.player.bombs;i++){
+      ctx.font='16px serif'; ctx.fillStyle='#88aaff';
+      ctx.shadowColor='#4466ff'; ctx.shadowBlur=8;
+      ctx.fillText('✦',CANVAS_W/2-18+i*20,CANVAS_H-11);
     }
-
-    ctx.textAlign = 'center';
-    ctx.font = '10px monospace'; ctx.fillStyle = '#555577'; ctx.shadowBlur = 0;
-    ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`, CANVAS_W/2, 22);
-
+    // 残機（♥マーク）
+    ctx.textAlign='right';
+    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
+    ctx.fillText('LIVES',CANVAS_W-10,CANVAS_H-28);
+    for(let i=0;i<this.lives;i++){
+      ctx.font='16px serif'; ctx.fillStyle='#ff4488';
+      ctx.shadowColor='#ff0044'; ctx.shadowBlur=6;
+      ctx.fillText('♥',CANVAS_W-14-i*22,CANVAS_H-11);
+    }
+    ctx.textAlign='center'; ctx.font='9px monospace'; ctx.fillStyle='#444466'; ctx.shadowBlur=0;
+    ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`,CANVAS_W/2,20);
     ctx.restore();
   }
 
-  /** ボス出現警告 */
-  drawWarning(ctx) {
-    if (Math.floor(this.uiTick / 15) % 2 === 0) {
-      ctx.save(); ctx.textAlign = 'center';
-      ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#ff4444';
-      ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20;
-      ctx.fillText('⚠ WARNING ⚠', CANVAS_W/2, CANVAS_H/2);
-      ctx.font = '13px monospace'; ctx.fillStyle = '#ffaaaa'; ctx.shadowBlur = 8;
-      ctx.fillText('ボスが接近しています！', CANVAS_W/2, CANVAS_H/2 + 28);
+  drawWarning(ctx){
+    if(Math.floor(this.uiTick/14)%2===0){
+      ctx.save(); ctx.textAlign='center';
+      ctx.font='bold 22px monospace'; ctx.fillStyle='#ff4444'; ctx.shadowColor='#ff0000'; ctx.shadowBlur=22;
+      ctx.fillText('WARNING',CANVAS_W/2,CANVAS_H/2);
+      ctx.font='12px monospace'; ctx.fillStyle='#ffaaaa'; ctx.shadowBlur=8;
+      ctx.fillText('ボスが接近しています！',CANVAS_W/2,CANVAS_H/2+28);
       ctx.restore();
     }
   }
 
-  /** ステージクリアメッセージ */
-  drawClear(ctx) {
-    const pulse = Math.sin(this.uiTick * 0.05) * 0.2 + 0.8;
-    ctx.save(); ctx.textAlign = 'center';
-    ctx.globalAlpha = pulse;
-    ctx.font = 'bold 28px serif'; ctx.fillStyle = '#ffdd44';
-    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 20;
-    ctx.fillText('✦ STAGE CLEAR ✦', CANVAS_W/2, CANVAS_H/2 - 20);
-    ctx.font = '14px monospace'; ctx.fillStyle = '#ffffff'; ctx.shadowBlur = 0;
-    ctx.fillText('おめでとうございます！', CANVAS_W/2, CANVAS_H/2 + 15);
+  drawClear(ctx){
+    const pulse=Math.sin(this.uiTick*0.05)*0.2+0.8;
+    ctx.save(); ctx.textAlign='center'; ctx.globalAlpha=pulse;
+    ctx.font='bold 28px serif'; ctx.fillStyle='#ffdd44'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=22;
+    ctx.fillText('STAGE CLEAR',CANVAS_W/2,CANVAS_H/2-20);
+    ctx.font='14px monospace'; ctx.fillStyle='#ffffff'; ctx.shadowBlur=0;
+    ctx.fillText('おめでとうございます！',CANVAS_W/2,CANVAS_H/2+18);
     ctx.restore();
   }
 
-  // --- ゲームオーバー画面描画 ---
-  drawGameOver(ctx) {
-    const cx = CANVAS_W / 2;
-    const t  = this.uiTick;
-
-    ctx.fillStyle = 'rgba(0,0,10,0.7)';
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-    ctx.save(); ctx.textAlign = 'center';
-
-    // 揺れるGAME OVERテキスト
-    const shake = Math.sin(t * 0.12) * 2;
-    ctx.font = 'bold 42px serif'; ctx.fillStyle = '#ff3333';
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 25;
-    ctx.fillText('GAME OVER', cx + shake, 220);
-
-    // スコア
-    ctx.font = 'bold 16px monospace'; ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = '#fff'; ctx.shadowBlur = 8;
-    ctx.fillText('FINAL SCORE', cx, 278);
-    ctx.font = 'bold 28px monospace'; ctx.fillStyle = '#ffdd88';
-    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 15;
-    ctx.fillText(this.score.toString().padStart(8, '0'), cx, 315);
-
-    // ハイスコア
-    if (this.score >= this.hiScore && this.score > 0) {
-      ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#ff88ff';
-      ctx.shadowColor = '#ff44ff'; ctx.shadowBlur = 10;
-      ctx.fillText('✦ NEW HI-SCORE! ✦', cx, 345);
+  drawGameOver(ctx){
+    const cx=CANVAS_W/2, t=this.uiTick;
+    ctx.fillStyle='rgba(0,0,12,0.72)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    ctx.save(); ctx.textAlign='center';
+    ctx.font='bold 42px serif'; ctx.fillStyle='#ff3333';
+    ctx.shadowColor='#ff0000'; ctx.shadowBlur=26;
+    ctx.fillText('GAME OVER',cx+Math.sin(t*0.12)*2,215);
+    ctx.font='bold 15px monospace'; ctx.fillStyle='#ffffff'; ctx.shadowColor='#fff'; ctx.shadowBlur=8;
+    ctx.fillText('FINAL SCORE',cx,272);
+    ctx.font='bold 28px monospace'; ctx.fillStyle='#ffdd88'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=16;
+    ctx.fillText(this.score.toString().padStart(8,'0'),cx,310);
+    if(this.score>=this.hiScore&&this.score>0){
+      ctx.font='bold 13px monospace'; ctx.fillStyle='#ff88ff'; ctx.shadowColor='#ff44ff'; ctx.shadowBlur=12;
+      ctx.fillText('NEW HI-SCORE!',cx,342);
     } else {
-      ctx.font = '12px monospace'; ctx.fillStyle = '#666688'; ctx.shadowBlur = 0;
-      ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8,'0')}`, cx, 345);
+      ctx.font='12px monospace'; ctx.fillStyle='#666688'; ctx.shadowBlur=0;
+      ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8,'0')}`,cx,342);
     }
-
-    // 点滅する「Press R to Restart」
-    if (Math.floor(t / 25) % 2 === 0) {
-      ctx.font = 'bold 16px monospace'; ctx.fillStyle = '#ccccff';
-      ctx.shadowColor = '#8888ff'; ctx.shadowBlur = 10;
-      ctx.fillText('Press R to Restart', cx, 405);
+    if(Math.floor(t/24)%2===0){
+      ctx.font='bold 15px monospace'; ctx.fillStyle='#ccccff'; ctx.shadowColor='#8888ff'; ctx.shadowBlur=10;
+      ctx.fillText('Press R to Restart',cx,400);
     }
-
     ctx.restore();
   }
 }
 
-
 // ============================================================
-//  エントリーポイント - ページ読み込み完了後にゲーム起動
+//  エントリーポイント
 // ============================================================
-window.addEventListener('load', () => {
+window.addEventListener('load', ()=>{
   new Game();
-  console.log('🎮 幻想郷の戦い - 起動完了！');
+  console.log('幻想郷の戦い - ボム&スペルカード5枚版 起動！');
 });
 </script>
 </body>
