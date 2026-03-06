@@ -437,25 +437,32 @@ class Player {
 
     // ── PNG画像モード ──────────────────────────────────────
     if (PLAYER_IMG) {
+      // 左右移動中に最大15度傾ける
+      const dx = (input&&input.isDown('ArrowLeft')?-1:0)+(input&&input.isDown('ArrowRight')?1:0);
+      const tiltAngle = dx * (15 * Math.PI / 180);
+
       ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(tiltAngle);
       if (this.bombActive) { ctx.shadowColor=`hsl(${this.animTick*5%360},100%,70%)`; ctx.shadowBlur=28; }
-      ctx.drawImage(PLAYER_IMG, this.x-PLAYER_IMG_W/2, this.y-PLAYER_IMG_H/2, PLAYER_IMG_W, PLAYER_IMG_H);
-      // Shift: 当たり判定可視化
-      const isSlowP=input&&(input.isDown('ShiftLeft')||input.isDown('ShiftRight'));
-      if(isSlowP){
-        ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.animTick*0.05);
+      ctx.drawImage(PLAYER_IMG, -PLAYER_IMG_W/2, -PLAYER_IMG_H/2, PLAYER_IMG_W, PLAYER_IMG_H);
+      ctx.restore();
+
+      // Shift: 当たり判定可視化（傾きなし・自機中心基準で描く）
+      const isSlowP = input&&(input.isDown('ShiftLeft')||input.isDown('ShiftRight'));
+      if (isSlowP) {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.animTick*0.05);
         for(let i=0;i<8;i++){
           const a=(Math.PI*2/8)*i;
           ctx.beginPath(); ctx.arc(Math.cos(a)*10,Math.sin(a)*10,2,0,Math.PI*2);
           ctx.fillStyle='rgba(255,100,150,0.85)'; ctx.shadowColor='#ff6699'; ctx.shadowBlur=6; ctx.fill();
         }
         ctx.restore();
-        ctx.save(); ctx.translate(this.x,this.y);
+        ctx.save(); ctx.translate(this.x, this.y);
         ctx.beginPath(); ctx.arc(0,0,this.hitRadius,0,Math.PI*2);
         ctx.fillStyle='#ff3366'; ctx.shadowColor='#ff0044'; ctx.shadowBlur=8; ctx.fill();
         ctx.restore();
       }
-      ctx.restore();
       this.bullets.forEach(b=>b.draw(ctx));
       return;
     }
