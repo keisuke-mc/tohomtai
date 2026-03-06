@@ -1410,7 +1410,7 @@ class Game {
             this.spawnExplosion(e.x,e.y,'#ff88ff',18);
             // 敵撃破時に50%の確率でPアイテム、20%の確率でボムアイテムをドロップ
             if(Math.random()<0.5) this.powerItems.push(new PowerItem(e.x,e.y));
-            if(Math.random()<0.2) this.bombItems.push(new BombItem(e.x,e.y));
+            if(Math.random()<0.07) this.bombItems.push(new BombItem(e.x,e.y));
           } else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
           break;
         }
