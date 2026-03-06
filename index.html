@@ -588,7 +588,7 @@ class PowerItem {
     this.active=true;
     this.animTick=0;
     this.radius=9; // 当たり判定半径（正方形の半辺）
-    this.size=18;  // 描画サイズ（大きめで目立つ）
+    this.size=14;  // 描画サイズ
   }
 
   update() {
@@ -599,41 +599,24 @@ class PowerItem {
 
   draw(ctx) {
     const t=this.animTick;
-    const pulse=0.75+Math.sin(t*0.18)*0.25; // 明るく大きく点滅
+    const pulse=0.85+Math.sin(t*0.15)*0.15; // 0.7〜1.0で点滅
     ctx.save();
+    ctx.globalAlpha=pulse;
     ctx.translate(this.x, this.y);
+    // 赤い正方形
     const s=this.size;
-
-    // 外側の輝くリング（遠くからでも見えるよう）
-    ctx.beginPath();
-    ctx.arc(0, 0, s*1.2+Math.sin(t*0.18)*3, 0, Math.PI*2);
-    ctx.strokeStyle=`rgba(255,80,80,${pulse*0.7})`;
-    ctx.lineWidth=2.5;
-    ctx.shadowColor='#ff2222'; ctx.shadowBlur=16;
-    ctx.stroke();
-
-    // 本体：赤い正方形
-    ctx.globalAlpha=0.92+Math.sin(t*0.18)*0.08;
-    ctx.shadowColor='#ff2222'; ctx.shadowBlur=20;
-    ctx.fillStyle='#dd0000';
+    ctx.shadowColor='#ff2222'; ctx.shadowBlur=12;
+    ctx.fillStyle='#cc0000';
     ctx.fillRect(-s/2, -s/2, s, s);
-
-    // ハイライト（上辺に明るい帯）
-    ctx.shadowBlur=0;
-    ctx.fillStyle='rgba(255,120,120,0.45)';
-    ctx.fillRect(-s/2, -s/2, s, s*0.35);
-
-    // 縁取り
-    ctx.strokeStyle='#ff9999'; ctx.lineWidth=1.8;
+    // 明るい縁取り
+    ctx.strokeStyle='#ff8888'; ctx.lineWidth=1.5; ctx.shadowBlur=0;
     ctx.strokeRect(-s/2, -s/2, s, s);
-
     // 「P」文字
     ctx.fillStyle='#ffffff';
-    ctx.font=`bold ${s}px monospace`;
+    ctx.font=`bold ${s-2}px monospace`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.shadowColor='#ffcccc'; ctx.shadowBlur=10;
+    ctx.shadowColor='#ffffff'; ctx.shadowBlur=6;
     ctx.fillText('P', 0, 1);
-
     ctx.restore();
   }
 }
@@ -650,7 +633,7 @@ class BombItem {
     this.active=true;
     this.animTick=0;
     this.radius=9;
-    this.size=18;
+    this.size=14;
   }
   update() {
     this.y += this.vy;
@@ -658,42 +641,21 @@ class BombItem {
     if(this.y > CANVAS_H+20) this.active=false;
   }
   draw(ctx) {
-    const t=this.animTick;
-    const pulse=0.75+Math.sin(t*0.18)*0.25;
+    const pulse=0.85+Math.sin(this.animTick*0.15)*0.15;
     ctx.save();
+    ctx.globalAlpha=pulse;
     ctx.translate(this.x, this.y);
     const s=this.size;
-
-    // 外側の輝くリング
-    ctx.beginPath();
-    ctx.arc(0, 0, s*1.2+Math.sin(t*0.18)*3, 0, Math.PI*2);
-    ctx.strokeStyle=`rgba(80,130,255,${pulse*0.7})`;
-    ctx.lineWidth=2.5;
-    ctx.shadowColor='#2255ff'; ctx.shadowBlur=16;
-    ctx.stroke();
-
-    // 本体：青い正方形
-    ctx.globalAlpha=0.92+Math.sin(t*0.18)*0.08;
-    ctx.shadowColor='#2255ff'; ctx.shadowBlur=20;
+    ctx.shadowColor='#2255ff'; ctx.shadowBlur=12;
     ctx.fillStyle='#0033cc';
     ctx.fillRect(-s/2, -s/2, s, s);
-
-    // ハイライト
-    ctx.shadowBlur=0;
-    ctx.fillStyle='rgba(100,150,255,0.45)';
-    ctx.fillRect(-s/2, -s/2, s, s*0.35);
-
-    // 縁取り
-    ctx.strokeStyle='#88aaff'; ctx.lineWidth=1.8;
+    ctx.strokeStyle='#88aaff'; ctx.lineWidth=1.5; ctx.shadowBlur=0;
     ctx.strokeRect(-s/2, -s/2, s, s);
-
-    // 「ボ」文字
     ctx.fillStyle='#ffffff';
     ctx.font=`bold ${s-2}px monospace`;
     ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.shadowColor='#ccddff'; ctx.shadowBlur=10;
+    ctx.shadowColor='#ffffff'; ctx.shadowBlur=6;
     ctx.fillText('ボ', 0, 1);
-
     ctx.restore();
   }
 }
@@ -974,19 +936,16 @@ class Boss {
 
   /** スペルカードを次に進める */
   nextSpellCard(){
-    // スペルカード撃破時のアイテムドロップ
-    // オーバーレイ表示中でも見やすいよう画面中央付近に散らす
+    // スペルカード撃破時のアイテムドロップ（ゲームに通知）
     if(this.game){
-      const dropX = CANVAS_W/2;
-      const dropY = CANVAS_H/2 + 80; // 画面中央より少し下
       // Pアイテム 3〜5個
       const pCount = randInt(3,6);
       for(let i=0;i<pCount;i++){
-        const ox=randFloat(-70,70), oy=randFloat(-20,40);
-        this.game.powerItems.push(new PowerItem(dropX+ox, dropY+oy, true));
+        const ox=randFloat(-40,40), oy=randFloat(0,30);
+        this.game.powerItems.push(new PowerItem(this.x+ox, this.y+oy));
       }
       // ボムアイテム 1個
-      this.game.bombItems.push(new BombItem(dropX+randFloat(-30,30), dropY+randFloat(-10,20), true));
+      this.game.bombItems.push(new BombItem(this.x+randFloat(-20,20), this.y+randFloat(0,20)));
     }
     this.currentCard++;
     if(this.currentCard>=this.spellCards.length){ this.active=false; return; }
@@ -1130,7 +1089,7 @@ class Boss {
     ctx.globalAlpha = alpha;
 
     // ── 全画面を暗く覆うオーバーレイ ──────────
-    ctx.fillStyle = `hsla(${card.bgHue},30%,5%,0.70)`;
+    ctx.fillStyle = `hsla(${card.bgHue},30%,5%,0.82)`;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     // ── 上下の装飾ライン ──────────────────────
@@ -1529,11 +1488,10 @@ class Game {
     this.bombEffects.forEach(b=>b.draw(ctx));
     // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
     this.enemyBullets.forEach(b=>b.draw(ctx));
-    this.enemies.forEach(e=>e.draw(ctx));
-    if(this.boss) this.boss.draw(ctx);
-    // アイテムはボス演出オーバーレイの上に描画する
     this.powerItems.forEach(item=>item.draw(ctx));
     this.bombItems.forEach(item=>item.draw(ctx));
+    this.enemies.forEach(e=>e.draw(ctx));
+    if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
     this.drawHUD(ctx);
     // ボス出現5秒前（15秒経過〜20秒）にWARNING表示
