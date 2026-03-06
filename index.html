@@ -59,6 +59,92 @@
 <script>
 "use strict";
 // ============================================================
+//  【PNG画像差し替え設定】
+//  自機・ボスの見た目を好きなPNG画像に変えられます。
+//
+//  変更方法：
+//    PLAYER_IMAGE_SRC と BOSS_IMAGE_SRC に画像のパスをセットして下さい。
+//    null のままにするとデフォルトのベクターグラフィックが使われます。
+//
+//  例：
+//    const PLAYER_IMAGE_SRC = 'reimu.png';   // 同フォルダのファイル
+//    const BOSS_IMAGE_SRC   = 'remilia.png';
+//
+//  注意点は下の [IMAGE NOTES] を参照してください。
+// ============================================================
+
+// ▼ ここを変更してください ▼
+const PLAYER_IMAGE_SRC = 'player.png';   // 例: 'player.png'  null=デフォルト描画
+const BOSS_IMAGE_SRC   = null;   // 例: 'boss.png'    null=デフォルト描画
+
+// 自機画像の描画サイズ（px）。画像のアスペクト比は自動で保持されません
+const PLAYER_IMG_W = 48;
+const PLAYER_IMG_H = 48;
+
+// ボス画像の描画サイズ（px）
+const BOSS_IMG_W = 80;
+const BOSS_IMG_H = 80;
+
+// ============================================================
+//  [IMAGE NOTES] PNG画像を使う際の注意点
+//
+//  1. ファイルの置き場所
+//     このHTMLファイルと同じフォルダにPNGを置き、
+//     PLAYER_IMAGE_SRC = 'ファイル名.png' のように指定してください。
+//     サブフォルダも可: 'images/player.png'
+//
+//  2. 背景は透過PNG推奨
+//     背景が透明なPNG（RGBA形式）を使うと、ゲーム背景と綺麗に合成されます。
+//     背景付きのJPEGや不透明PNGは見た目が崩れます。
+//
+//  3. 推奨サイズ
+//     自機: 64×64px 〜 128×128px 程度
+//     ボス: 96×96px 〜 160×160px 程度
+//     小さい画像を拡大するとぼやけるので、元画像を十分な解像度で用意してください。
+//
+//  4. ローカルファイルの読み込み制限（重要）
+//     ブラウザのセキュリティポリシーにより、ローカルのHTMLをダブルクリックで
+//     開いた場合、同フォルダの画像を読み込めないことがあります（CORS制限）。
+//     解決策：
+//       a) VSCode の Live Server 拡張などのローカルサーバーで開く
+//       b) 画像をBase64エンコードしてHTMLに埋め込む（下記参照）
+//
+//  5. Base64埋め込み方法（ローカル環境での確実な方法）
+//     画像をBase64に変換して直接文字列として貼り付ける方法です。
+//     変換サイト例: https://www.base64-image.de/
+//     変換したら:
+//       const PLAYER_IMAGE_SRC = 'data:image/png;base64,iVBORw0KGgo...（長い文字列）';
+//
+//  6. 描画位置・サイズ調整
+//     PLAYER_IMG_W / PLAYER_IMG_H / BOSS_IMG_W / BOSS_IMG_H の値を
+//     変えることで表示サイズを調整できます。
+//     画像は常に「機体の中心」を原点として描画されます。
+//
+//  7. 当たり判定は変わりません
+//     PNG画像を使っても当たり判定は元のコード（半径3pxの極小円）のままです。
+//     Shiftキーで赤い点が当たり判定の位置を示します。
+// ============================================================
+
+// 画像を非同期でロードし、完了したら変数に格納する
+let PLAYER_IMG = null;
+let BOSS_IMG   = null;
+
+function loadImages() {
+  if (PLAYER_IMAGE_SRC) {
+    const img = new Image();
+    img.onload  = () => { PLAYER_IMG = img; };
+    img.onerror = () => { console.warn('[画像読み込み失敗] 自機画像:', PLAYER_IMAGE_SRC); };
+    img.src = PLAYER_IMAGE_SRC;
+  }
+  if (BOSS_IMAGE_SRC) {
+    const img = new Image();
+    img.onload  = () => { BOSS_IMG = img; };
+    img.onerror = () => { console.warn('[画像読み込み失敗] ボス画像:', BOSS_IMAGE_SRC); };
+    img.src = BOSS_IMAGE_SRC;
+  }
+}
+loadImages();
+// ============================================================
 //  東方Project風 縦スクロール弾幕シューティング
 //  "幻想郷の戦い" - ボムシステム & スペルカード5枚版
 // ============================================================
@@ -120,59 +206,147 @@ class PlayerBullet {
 
 
 // ============================================================
-//  BombEffect - ボム爆発エフェクト
-//  Xキーを押した瞬間に生成され、画面全体に広がる光の輪を描く
+//  BombEffect - ボム豪華演出
+//  ① 画面全体フラッシュ
+//  ② 自機中心から伸びる特大ビーム（8方向放射）
+//  ③ 拡散する光のリング（多重）
+//  ④ 中心から放射する光柱（上方向の巨大ビーム）
+//  ⑤ 光の粒が画面全体を舞う
 // ============================================================
 class BombEffect {
   constructor(x, y) {
     this.x=x; this.y=y;
-    this.life=80; this.max=80;
-    // 時間差で展開する複数のリング
-    this.rings = [];
-    for(let i=0;i<5;i++){
-      this.rings.push({ delay:i*10, r:0, maxR:200+i*35, alpha:1 });
-    }
+    this.life=100; this.max=100;
     this.active=true;
+
+    // 8方向ビームの角度（45度ずつ）
+    this.beamAngles = Array.from({length:8}, (_,i) => (Math.PI*2/8)*i);
+    // 拡散リング
+    this.rings = Array.from({length:6}, (_,i) => ({
+      delay: i*6, r:0, maxR: 220+i*30, alpha:1, hue: 260+i*20
+    }));
+    // 光の粒パーティクル
+    this.sparks = Array.from({length:60}, () => {
+      const a=randFloat(0,Math.PI*2), s=randFloat(3,10);
+      return { x:x, y:y, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+               life:randInt(40,80), maxLife:0, hue:randInt(240,320), size:randFloat(2,5) };
+    });
+    this.sparks.forEach(s=>{ s.maxLife=s.life; });
   }
+
   update() {
     this.life--;
     if(this.life<=0){ this.active=false; return; }
     const elapsed = this.max - this.life;
-    this.rings.forEach(ring => {
-      if(elapsed >= ring.delay){
-        ring.r     = Math.min(ring.r+6, ring.maxR);
-        ring.alpha = 1 - ring.r/ring.maxR;
+    this.rings.forEach(r => {
+      if(elapsed>=r.delay){
+        r.r     = Math.min(r.r+7, r.maxR);
+        r.alpha = 1 - r.r/r.maxR;
       }
     });
+    this.sparks.forEach(s => {
+      s.x+=s.vx; s.y+=s.vy;
+      s.vx*=0.92; s.vy*=0.92;
+      s.life--;
+    });
   }
+
   draw(ctx) {
-    const t = this.max - this.life;
+    const t   = this.max - this.life; // 経過フレーム
+    const tot = this.max;
     ctx.save();
-    // 最初の数フレームは画面全体を白くフラッシュ
-    if(t < 8){
-      ctx.fillStyle=`rgba(255,255,255,${0.38*(1-t/8)})`;
+
+    // ① フラッシュ（0〜12f）：白い光が画面全体を包む
+    if(t < 12) {
+      const a = t<6 ? t/6 : 1-(t-6)/6; // 急速に明るくなり消える
+      ctx.fillStyle=`rgba(255,255,255,${a*0.92})`;
       ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
     }
-    // 拡散する光のリング
-    this.rings.forEach(ring => {
-      if(ring.r<=0) return;
+
+    // ④ 上方向への特大ビーム（main beam）- 細長い光柱が空に向かって噴き上がる
+    if(t < 55) {
+      const bAlpha = t<8 ? t/8 : Math.max(0, 1-(t-8)/47);
+      const bHeight = Math.min(t*18, CANVAS_H); // フレームに合わせて伸びる
+      const bw = 18 * (1-(t/55)*0.5); // 幅は時間で細くなる
+      const bg = ctx.createLinearGradient(this.x, this.y, this.x, this.y-bHeight);
+      bg.addColorStop(0, `rgba(255,255,255,${bAlpha})`);
+      bg.addColorStop(0.3, `rgba(200,160,255,${bAlpha*0.9})`);
+      bg.addColorStop(1, `rgba(120,80,255,0)`);
+      ctx.fillStyle=bg;
+      ctx.shadowColor='#cc88ff'; ctx.shadowBlur=30;
+      ctx.fillRect(this.x-bw/2, this.y-bHeight, bw, bHeight);
+      // ビームの両側のぼんやりした光
+      const bg2 = ctx.createLinearGradient(this.x, this.y, this.x, this.y-bHeight*0.8);
+      bg2.addColorStop(0, `rgba(200,150,255,${bAlpha*0.4})`);
+      bg2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle=bg2;
+      ctx.fillRect(this.x-bw*2, this.y-bHeight*0.8, bw*4, bHeight*0.8);
+    }
+
+    // ② 8方向放射ビーム（斜め含む）
+    if(t < 45) {
+      const bAlpha = t<5 ? t/5 : Math.max(0,1-(t-5)/40);
+      const bLen   = Math.min(t*15, 300);
+      ctx.lineWidth = 3;
+      this.beamAngles.forEach((angle, i) => {
+        const hue = 260 + i*15;
+        const g = ctx.createLinearGradient(
+          this.x, this.y,
+          this.x+Math.cos(angle)*bLen, this.y+Math.sin(angle)*bLen
+        );
+        g.addColorStop(0, `rgba(255,255,255,${bAlpha})`);
+        g.addColorStop(0.4, `hsla(${hue},100%,80%,${bAlpha*0.8})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.strokeStyle=g;
+        ctx.shadowColor=`hsl(${hue},100%,70%)`;
+        ctx.shadowBlur=15;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x+Math.cos(angle)*bLen, this.y+Math.sin(angle)*bLen);
+        ctx.stroke();
+      });
+    }
+
+    // ③ 拡散リング
+    this.rings.forEach(r => {
+      if(r.r<=0) return;
       ctx.beginPath();
-      ctx.arc(this.x,this.y,ring.r,0,Math.PI*2);
-      ctx.strokeStyle=`rgba(180,120,255,${ring.alpha*0.9})`;
-      ctx.lineWidth=4*ring.alpha+1;
-      ctx.shadowColor='#cc88ff'; ctx.shadowBlur=18;
+      ctx.arc(this.x, this.y, r.r, 0, Math.PI*2);
+      ctx.strokeStyle=`hsla(${r.hue},100%,75%,${r.alpha*0.85})`;
+      ctx.lineWidth=5*r.alpha+1;
+      ctx.shadowColor=`hsl(${r.hue},100%,70%)`;
+      ctx.shadowBlur=20;
       ctx.stroke();
     });
-    // 中心の輝き（開始直後のみ）
-    if(t<20){
-      const a=1-t/20;
-      const g=ctx.createRadialGradient(this.x,this.y,0,this.x,this.y,65);
-      g.addColorStop(0,`rgba(255,255,255,${a})`);
-      g.addColorStop(0.4,`rgba(190,130,255,${a*0.7})`);
-      g.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=g;
-      ctx.beginPath(); ctx.arc(this.x,this.y,65,0,Math.PI*2); ctx.fill();
+
+    // 中心の輝き（常時、徐々に消える）
+    {
+      const ca = Math.max(0, 1-(t/tot));
+      const cr = 80 * (1-t/tot) + 20;
+      const cg = ctx.createRadialGradient(this.x,this.y,0, this.x,this.y,cr);
+      cg.addColorStop(0, `rgba(255,255,255,${ca})`);
+      cg.addColorStop(0.3, `rgba(220,160,255,${ca*0.8})`);
+      cg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle=cg;
+      ctx.shadowBlur=0;
+      ctx.beginPath(); ctx.arc(this.x,this.y,cr,0,Math.PI*2); ctx.fill();
     }
+
+    // ⑤ 光の粒
+    this.sparks.forEach(s => {
+      if(s.life<=0) return;
+      const a = s.life/s.maxLife;
+      ctx.save();
+      ctx.globalAlpha=a;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size*a, 0, Math.PI*2);
+      ctx.fillStyle=`hsl(${s.hue},100%,80%)`;
+      ctx.shadowColor=`hsl(${s.hue},100%,70%)`;
+      ctx.shadowBlur=8;
+      ctx.fill();
+      ctx.restore();
+    });
+
     ctx.restore();
   }
 }
@@ -187,7 +361,7 @@ class Player {
     this.drawRadius=18;
     // 【東方スタイル】当たり判定を見た目より大幅に小さくする
     this.hitRadius=3;
-    this.speed=5.5; this.slowSpeed=2.0;
+    this.speed=5.2; this.slowSpeed=2.0;
     this.shootCooldown=0; this.shootInterval=5;
     this.invincible=0; this.invincibleDuration=120;
     this.animTick=0;
@@ -260,6 +434,33 @@ class Player {
   draw(ctx, input) {
     // 無敵中は4フレームごと点滅（ボム発動中は点滅しない）
     if(this.invincible>0 && !this.bombActive && Math.floor(this.invincible/4)%2===0) return;
+
+    // ── PNG画像モード ──────────────────────────────────────
+    if (PLAYER_IMG) {
+      ctx.save();
+      if (this.bombActive) { ctx.shadowColor=`hsl(${this.animTick*5%360},100%,70%)`; ctx.shadowBlur=28; }
+      ctx.drawImage(PLAYER_IMG, this.x-PLAYER_IMG_W/2, this.y-PLAYER_IMG_H/2, PLAYER_IMG_W, PLAYER_IMG_H);
+      // Shift: 当たり判定可視化
+      const isSlowP=input&&(input.isDown('ShiftLeft')||input.isDown('ShiftRight'));
+      if(isSlowP){
+        ctx.save(); ctx.translate(this.x,this.y); ctx.rotate(this.animTick*0.05);
+        for(let i=0;i<8;i++){
+          const a=(Math.PI*2/8)*i;
+          ctx.beginPath(); ctx.arc(Math.cos(a)*10,Math.sin(a)*10,2,0,Math.PI*2);
+          ctx.fillStyle='rgba(255,100,150,0.85)'; ctx.shadowColor='#ff6699'; ctx.shadowBlur=6; ctx.fill();
+        }
+        ctx.restore();
+        ctx.save(); ctx.translate(this.x,this.y);
+        ctx.beginPath(); ctx.arc(0,0,this.hitRadius,0,Math.PI*2);
+        ctx.fillStyle='#ff3366'; ctx.shadowColor='#ff0044'; ctx.shadowBlur=8; ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+      this.bullets.forEach(b=>b.draw(ctx));
+      return;
+    }
+
+    // ── デフォルト描画（PNG未設定時）─────────────────────
     ctx.save();
     ctx.translate(this.x, this.y);
     const t=this.animTick;
@@ -714,23 +915,27 @@ class Boss {
       ctx.lineWidth=2; ctx.shadowColor=`hsl(${card.bgHue},100%,70%)`; ctx.shadowBlur=15; ctx.stroke();
     }
 
-    // 本体グラデーション円
-    const grad=ctx.createRadialGradient(0,0,0,0,0,this.radius);
-    grad.addColorStop(0,'#ffffff');
-    grad.addColorStop(0.3,`hsl(${card.bgHue},90%,60%)`);
-    grad.addColorStop(1,`hsla(${card.bgHue},80%,20%,0.8)`);
-    ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2);
-    ctx.fillStyle=grad; ctx.shadowColor=`hsl(${card.bgHue},100%,60%)`; ctx.shadowBlur=25; ctx.fill();
-
-    // プレイヤーを追跡する瞳
-    ctx.beginPath(); ctx.arc(0,-6,11,0,Math.PI*2);
-    ctx.fillStyle='rgba(255,255,255,0.92)'; ctx.shadowBlur=0; ctx.fill();
-    const ea=Math.atan2(this.player.y-this.y,this.player.x-this.x);
-    const px=Math.cos(ea)*4.5, py=Math.sin(ea)*4.5-6;
-    ctx.beginPath(); ctx.arc(px,py,5.5,0,Math.PI*2);
-    ctx.fillStyle=`hsl(${card.bgHue},90%,35%)`; ctx.fill();
-    ctx.beginPath(); ctx.arc(px,py,2.5,0,Math.PI*2); ctx.fillStyle='#000'; ctx.fill();
-    ctx.beginPath(); ctx.arc(px+1.5,py-1.5,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    // 本体描画：PNG画像 or デフォルトグラデーション円
+    if (BOSS_IMG) {
+      ctx.drawImage(BOSS_IMG, -BOSS_IMG_W/2, -BOSS_IMG_H/2, BOSS_IMG_W, BOSS_IMG_H);
+    } else {
+      // デフォルト：グラデーション円＋瞳
+      const grad=ctx.createRadialGradient(0,0,0,0,0,this.radius);
+      grad.addColorStop(0,'#ffffff');
+      grad.addColorStop(0.3,`hsl(${card.bgHue},90%,60%)`);
+      grad.addColorStop(1,`hsla(${card.bgHue},80%,20%,0.8)`);
+      ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2);
+      ctx.fillStyle=grad; ctx.shadowColor=`hsl(${card.bgHue},100%,60%)`; ctx.shadowBlur=25; ctx.fill();
+      // プレイヤーを追跡する瞳
+      ctx.beginPath(); ctx.arc(0,-6,11,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,0.92)'; ctx.shadowBlur=0; ctx.fill();
+      const ea=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+      const px=Math.cos(ea)*4.5, py=Math.sin(ea)*4.5-6;
+      ctx.beginPath(); ctx.arc(px,py,5.5,0,Math.PI*2);
+      ctx.fillStyle=`hsl(${card.bgHue},90%,35%)`; ctx.fill();
+      ctx.beginPath(); ctx.arc(px,py,2.5,0,Math.PI*2); ctx.fillStyle='#000'; ctx.fill();
+      ctx.beginPath(); ctx.arc(px+1.5,py-1.5,1.2,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
+    }
 
     ctx.restore();
     this.drawHPBar(ctx);
