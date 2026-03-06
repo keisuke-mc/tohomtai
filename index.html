@@ -125,9 +125,65 @@ const BOSS_IMG_H = 80;
 //     Shiftキーで赤い点が当たり判定の位置を示します。
 // ============================================================
 
+// ============================================================
+//  【背景レイヤー設定】
+//  3枚のPNG画像をそれぞれ異なる速さで縦スクロールさせます。
+//
+//  src   : 画像ファイルのパス。null にすると星フィールドのみ表示。
+//  speed : スクロール速度（px/フレーム）。大きいほど速い。
+//  alpha : 不透明度（0.0〜1.0）。重ね合わせ時の透け具合を調整。
+//
+//  例：
+//    { src: 'bg/layer1.png', speed: 0.4, alpha: 1.0 },  // 最背面・遅い
+//    { src: 'bg/layer2.png', speed: 1.0, alpha: 0.85 }, // 中間
+//    { src: 'bg/layer3.png', speed: 2.0, alpha: 0.7  }, // 手前・速い
+//
+//  推奨PNG仕様：
+//    ・幅 400px（キャンバス幅と同じ）
+//    ・高さ 600px 以上（600pxなら1画面分、それ以上なら繰り返し間隔が長くなる）
+//    ・layer1 は不透明でもOK、layer2・3 は透過PNGが映える
+// ============================================================
+
+// ▼ ここを変更してください ▼
+const BG_LAYERS = [
+  { src: null, speed: 0.4,  alpha: 1.0  },  // レイヤー1（最背面・最も遅い）
+  { src: null, speed: 1.0,  alpha: 0.85 },  // レイヤー2（中間）
+  { src: null, speed: 2.0,  alpha: 0.70 },  // レイヤー3（手前・最も速い）
+];
+
+
+// ============================================================
+//  【効果音設定】
+//  soundeffects フォルダに音声ファイルを入れて設定してください。
+//
+//  対応フォーマット: WAV / MP3 / OGG（ブラウザによる）
+//  ファイルが存在しない場合やパスが null の場合は自動的に無音スキップします。
+//
+//  volume: 音量（0.0〜1.0）
+// ============================================================
+
+// ▼ ここを変更してください ▼
+const SE_CONFIG = {
+  playerShoot: { src: 'soundeffects/player_shoot.wav',  volume: 0.6 }, // 自機ショット
+  enemyShoot:  { src: 'soundeffects/enemy_shoot.wav',   volume: 0.4 }, // 道中敵 弾幕発射
+  bossShoot:   { src: 'soundeffects/boss_shoot.wav',    volume: 0.5 }, // ボス 弾幕発射
+  bomb:        { src: 'soundeffects/bomb.wav',           volume: 0.9 }, // ボム発動
+  playerHit:   { src: 'soundeffects/player_hit.wav',    volume: 0.8 }, // 自機 被弾
+  spellCard:   { src: 'soundeffects/spell_card.wav',    volume: 0.8 }, // スペルカード切り替え
+  enemyDeath:  { src: 'soundeffects/enemy_death.wav',   volume: 0.5 }, // 道中敵 撃破
+  powerItem:   { src: 'soundeffects/power_item.wav',    volume: 0.6 }, // Pアイテム取得
+  bombItem:    { src: 'soundeffects/bomb_item.wav',     volume: 0.6 }, // ボムアイテム取得
+};
+// ※ 音を鳴らしたくない項目は src を null にしてください
+//    例: playerShoot: { src: null, volume: 0.6 },
+
+
 // 画像を非同期でロードし、完了したら変数に格納する
 let PLAYER_IMG = null;
 let BOSS_IMG   = null;
+
+// 背景レイヤー画像（実行時にロード）
+const _bgImgs = [null, null, null];
 
 function loadImages() {
   if (PLAYER_IMAGE_SRC) {
@@ -142,6 +198,13 @@ function loadImages() {
     img.onerror = () => { console.warn('[画像読み込み失敗] ボス画像:', BOSS_IMAGE_SRC); };
     img.src = BOSS_IMAGE_SRC;
   }
+  BG_LAYERS.forEach((cfg, i) => {
+    if (!cfg.src) return;
+    const img = new Image();
+    img.onload  = () => { _bgImgs[i] = img; };
+    img.onerror = () => { console.warn(`[BG読み込み失敗] レイヤー${i+1}:`, cfg.src); };
+    img.src = cfg.src;
+  });
 }
 loadImages();
 // ============================================================
@@ -158,6 +221,62 @@ function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1,y2-y1); }
 function clamp(v,mn,mx){ return Math.min(Math.max(v,mn),mx); }
 function randInt(mn,mx){ return Math.floor(Math.random()*(mx-mn))+mn; }
 function randFloat(mn,mx){ return Math.random()*(mx-mn)+mn; }
+
+
+// ============================================================
+//  SoundManager - Web Audio API による効果音管理
+//  SE_CONFIG で設定したファイルを非同期ロードし、play() で再生する。
+//  同じ音を重ねて鳴らせる（弾幕連打でも途切れない）。
+// ============================================================
+class SoundManager {
+  constructor() {
+    this.buffers = {};  // name -> AudioBuffer
+    this._ctx = null;
+    this._ready = false;
+    try {
+      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this._ready = true;
+    } catch(e) {
+      console.warn('[SoundManager] Web Audio API 非対応環境です');
+    }
+    for(const [name, cfg] of Object.entries(SE_CONFIG)){
+      if(cfg.src) this._load(name, cfg.src);
+    }
+  }
+
+  _load(name, src) {
+    if(!this._ready) return;
+    fetch(src)
+      .then(r => { if(!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then(buf => this._ctx.decodeAudioData(buf))
+      .then(decoded => { this.buffers[name] = decoded; })
+      .catch(() => { /* ファイル未配置は静かにスキップ */ });
+  }
+
+  /** 効果音を再生。ファイル未ロード・src=null なら無音スキップ */
+  play(name) {
+    if(!this._ready || !this.buffers[name]) return;
+    try {
+      if(this._ctx.state === 'suspended') this._ctx.resume();
+      const cfg = SE_CONFIG[name];
+      const src = this._ctx.createBufferSource();
+      src.buffer = this.buffers[name];
+      const gain = this._ctx.createGain();
+      gain.gain.value = cfg?.volume ?? 1.0;
+      src.connect(gain);
+      gain.connect(this._ctx.destination);
+      src.start(0);
+    } catch(e) { /* 再生エラーは無視 */ }
+  }
+
+  /** AudioContext を確実に開始（ユーザー操作後に呼ぶ） */
+  resume() {
+    if(this._ready && this._ctx.state === 'suspended') this._ctx.resume();
+  }
+}
+
+// グローバルインスタンス（Enemy/Boss からもアクセスできるよう window に登録）
+window._SE = null;
 
 
 // ============================================================
@@ -363,9 +482,15 @@ class Player {
     this.hitRadius=3;
     this.speed=5.2; this.slowSpeed=2.0;
     this.shootCooldown=0; this.shootInterval=5;
-    this.invincible=0; this.invincibleDuration=120;
+    this.invincible=0; this.invincibleDuration=180; // 被弾後の無敵時間（3秒@60fps）
     this.animTick=0;
     this.bullets=[];
+    // ===== 復活演出 =====
+    this.respawning=false;      // 復活中フラグ
+    this.respawnTimer=0;        // 復活演出カウンター
+    this.respawnDuration=60;    // 復活演出フレーム数（画面下から登場する時間）
+    this.respawnStartY=CANVAS_H+30; // 登場開始Y座標（画面外・下）
+    this.respawnEndY=CANVAS_H-100;  // 登場完了Y座標（通常の初期位置）
     // ===== ボムシステム =====
     this.bombs=3;           // ボム残数（最大3）
     this.bombActive=false;  // ボム発動中フラグ
@@ -383,6 +508,22 @@ class Player {
    */
   update(input, game) {
     this.animTick++;
+
+    // --- 復活演出中は自動で画面下から登場 ---
+    if(this.respawning){
+      this.respawnTimer++;
+      // イーズアウトで滑らかに登場
+      const t = Math.min(this.respawnTimer / this.respawnDuration, 1.0);
+      const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+      this.x = CANVAS_W/2;
+      this.y = this.respawnStartY + (this.respawnEndY - this.respawnStartY) * ease;
+      if(this.respawnTimer >= this.respawnDuration) this.respawning=false;
+      // 復活中は弾の更新だけ行い移動入力を受け付けない
+      this.bullets.forEach(b=>b.update());
+      this.bullets=this.bullets.filter(b=>b.active);
+      if(this.invincible>0) this.invincible--;
+      return;
+    }
 
     // --- 移動処理 ---
     const isSlow = input.isDown('ShiftLeft')||input.isDown('ShiftRight');
@@ -404,6 +545,7 @@ class Player {
       this.bullets.push(new PlayerBullet(this.x-8,  this.y-4,  -1.5, -15.5, bp));
       this.bullets.push(new PlayerBullet(this.x,    this.y-12,  0.0, -16,   bp));
       this.bullets.push(new PlayerBullet(this.x+8,  this.y-4,   1.5, -15.5, bp));
+      window._SE?.play('playerShoot');
     }
 
     // --- ボム発動処理（Xキーを押した瞬間だけ発動）---
@@ -430,12 +572,21 @@ class Player {
 
   hit() {
     if(this.invincible>0) return false;
-    this.invincible=this.invincibleDuration; return true;
+    // 被弾: 消えて画面外へ、復活演出を開始
+    this.invincible=this.invincibleDuration;
+    this.respawning=true;
+    this.respawnTimer=0;
+    this.x=CANVAS_W/2;
+    this.y=this.respawnStartY; // 画面外（下）に瞬間移動
+    this.bullets=[]; // 自機弾クリア
+    return true;
   }
 
   draw(ctx, input) {
-    // 無敵中は4フレームごと点滅（ボム発動中は点滅しない）
-    if(this.invincible>0 && !this.bombActive && Math.floor(this.invincible/4)%2===0) return;
+    // 復活演出中: 画面外にいる間は描画しない（respawnStartY 付近）
+    if(this.respawning && this.y > CANVAS_H) return;
+    // 無敵中は4フレームごと点滅（ボム発動中・復活中は点滅しない）
+    if(this.invincible>0 && !this.bombActive && !this.respawning && Math.floor(this.invincible/4)%2===0) return;
 
     // ── PNG画像モード ──────────────────────────────────────
     if (PLAYER_IMG) {
@@ -747,6 +898,7 @@ class Enemy {
     if(this.shootCooldown>0){ this.shootCooldown--; }
     else {
       this.shootCooldown=this.shootInterval; this.shootCount++;
+      window._SE?.play('enemyShoot');
       switch(this.type){
         case 'spread': this.shoot5Way(); if(this.shootCount%3===0) this.shootAimed(0.9); break;
         case 'fast':   this.shootFast3Way(); break;
@@ -936,6 +1088,7 @@ class Boss {
 
   /** スペルカードを次に進める */
   nextSpellCard(){
+    window._SE?.play('spellCard');
     // スペルカード撃破時のアイテムドロップ（ゲームに通知）
     if(this.game){
       // Pアイテム 3〜5個
@@ -987,8 +1140,10 @@ class Boss {
 
     // 停戦猶予が終わったら弾幕を発射
     if(this.ceasefireTimer===0){
+      const prevLen = this.bullets.length;
       const method=this.card.method;
       if(this[method]) this[method](this.cardTimer);
+      if(this.bullets.length > prevLen) window._SE?.play('bossShoot');
     }
 
     this.bullets.forEach(b=>b.update());
@@ -1171,22 +1326,63 @@ class Boss {
 // ============================================================
 //  StarField - 流れる背景の星
 // ============================================================
-class StarField {
-  constructor(){
-    this.stars=[];
+// ============================================================
+//  ParallaxBackground - 3レイヤー視差スクロール背景
+//  BG_LAYERS で設定した PNG を速さ別にスクロール。
+//  src=null のレイヤーはスキップし、星フィールドを常時オーバーレイ。
+// ============================================================
+class ParallaxBackground {
+  constructor() {
+    this.offsets = [0, 0, 0]; // 各レイヤーのスクロールオフセット
+    this.stars = [];
     for(let i=0;i<130;i++){
       this.stars.push({
-        x:randFloat(0,CANVAS_W),y:randFloat(0,CANVAS_H),
-        speed:randFloat(0.3,2.2),radius:randFloat(0.3,1.6),
-        brightness:randFloat(0.3,1.0),hue:randInt(180,280),
+        x:randFloat(0,CANVAS_W), y:randFloat(0,CANVAS_H),
+        speed:randFloat(0.3,2.2), radius:randFloat(0.3,1.6),
+        brightness:randFloat(0.3,1.0), hue:randInt(180,280),
       });
     }
   }
-  update(){ this.stars.forEach(s=>{ s.y+=s.speed; if(s.y>CANVAS_H+2){s.y=-2;s.x=randFloat(0,CANVAS_W);} }); }
-  draw(ctx){ this.stars.forEach(s=>{
-    ctx.beginPath(); ctx.arc(s.x,s.y,s.radius,0,Math.PI*2);
-    ctx.fillStyle=`hsla(${s.hue},60%,95%,${s.brightness})`; ctx.fill();
-  }); }
+
+  update() {
+    // 各レイヤーを設定速度でスクロール（画像高さでループ）
+    BG_LAYERS.forEach((cfg, i) => {
+      const imgH = (_bgImgs[i]?.naturalHeight) || CANVAS_H;
+      this.offsets[i] = (this.offsets[i] + cfg.speed) % imgH;
+    });
+    // 星の流れ
+    this.stars.forEach(s => {
+      s.y += s.speed;
+      if(s.y > CANVAS_H+2){ s.y=-2; s.x=randFloat(0,CANVAS_W); }
+    });
+  }
+
+  draw(ctx) {
+    const hasBg = _bgImgs.some(img => img !== null);
+
+    // ── PNG レイヤー描画（背面→前面）────────────
+    BG_LAYERS.forEach((cfg, i) => {
+      const img = _bgImgs[i];
+      if(!img) return;
+      const imgH = img.naturalHeight || CANVAS_H;
+      const scale = CANVAS_W / (img.naturalWidth || CANVAS_W);
+      const drawH = imgH * scale;
+      const oy = this.offsets[i] * scale;
+      ctx.save();
+      ctx.globalAlpha = cfg.alpha;
+      // 2枚つなぎでシームレスループ
+      ctx.drawImage(img, 0, oy - drawH, CANVAS_W, drawH);
+      ctx.drawImage(img, 0, oy,         CANVAS_W, drawH);
+      ctx.restore();
+    });
+
+    // ── 星（PNG背景がある場合は薄く重ねる）───────
+    const starAlpha = hasBg ? 0.35 : 1.0;
+    this.stars.forEach(s => {
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.radius, 0, Math.PI*2);
+      ctx.fillStyle=`hsla(${s.hue},60%,95%,${s.brightness * starAlpha})`; ctx.fill();
+    });
+  }
 }
 
 
@@ -1198,7 +1394,12 @@ class Game {
     this.canvas=document.getElementById('gameCanvas');
     this.ctx=this.canvas.getContext('2d');
     this.input=new InputManager();
-    this.starField=new StarField();
+    this.starField=new ParallaxBackground();
+    // 効果音マネージャーを初期化しグローバルに公開
+    window._SE = new SoundManager();
+    // ブラウザの自動再生制限対策：ユーザー操作後に AudioContext を開始
+    window.addEventListener('keydown', ()=>window._SE?.resume(), {once:true});
+    window.addEventListener('click',   ()=>window._SE?.resume(), {once:true});
     this.state=STATE.START;
     this.score=0; this.lives=3; this.hiScore=0;
     this.enemies=[]; this.boss=null; this.particles=[];
@@ -1309,6 +1510,7 @@ class Game {
     for(const item of this.powerItems){
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
+        window._SE?.play('powerItem');
         this.player.powerLevel=Math.min(this.player.powerLevel+1, this.player.powerMax);
         this.spawnExplosion(item.x,item.y,'#ff4444',6);
       }
@@ -1320,6 +1522,7 @@ class Game {
     for(const item of this.bombItems){
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
+        window._SE?.play('bombItem');
         this.player.bombs=Math.min(this.player.bombs+1, 9); // 最大9個まで
         this.spawnExplosion(item.x,item.y,'#4466ff',6);
       }
@@ -1358,6 +1561,7 @@ class Game {
   //  - 雑魚敵を即撃破・ボスに大ダメージ
   // ============================================================
   activateBomb(bx, by){
+    window._SE?.play('bomb');
     this.bombEffects.push(new BombEffect(bx, by));
     // ★ 共通プールの雑魚敵弾を全消去
     this.enemyBullets.forEach(b=>{b.active=false;});
@@ -1390,7 +1594,10 @@ class Game {
         if(dist(player.x,player.y,eb.x,eb.y)<player.hitRadius+eb.hitRadius){
           eb.active=false;
           if(player.hit()){
-            this.lives--; this.spawnExplosion(player.x,player.y,'#88ccff',15);
+            window._SE?.play('playerHit');
+            this.lives--;
+            // 被弾爆発エフェクト（hit()呼び出し前の座標で生成）
+            this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
             if(this.lives<=0){ if(this.score>this.hiScore) this.hiScore=this.score; this.state=STATE.GAMEOVER; }
             break;
           }
@@ -1406,9 +1613,10 @@ class Game {
         if(dist(pb.x,pb.y,e.x,e.y)<pb.radius+e.radius){
           pb.active=false;
           if(e.damage(pb.power)){
+            window._SE?.play('enemyDeath');
             this.score+=e.score;
             this.spawnExplosion(e.x,e.y,'#ff88ff',18);
-            // 敵撃破時に50%の確率でPアイテム、20%の確率でボムアイテムをドロップ
+            // 敵撃破時に50%の確率でPアイテム、7%の確率でボムアイテムをドロップ
             if(Math.random()<0.5) this.powerItems.push(new PowerItem(e.x,e.y));
             if(Math.random()<0.07) this.bombItems.push(new BombItem(e.x,e.y));
           } else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
