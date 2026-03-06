@@ -1078,7 +1078,7 @@ class Boss {
     // ── フェーズ分け ──────────────────────────
     // 270〜210: フェードイン (60f)
     // 210〜 60: 全力表示   (150f)
-    //  60〜  0: フェードアウト (60f)
+    //  60〜  0: フェードアウト (30f)
     let alpha;
     if(a > 210)       alpha = (270 - a) / 60;       // 0→1
     else if(a > 60)   alpha = 1.0;
@@ -1089,7 +1089,7 @@ class Boss {
     ctx.globalAlpha = alpha;
 
     // ── 全画面を暗く覆うオーバーレイ ──────────
-    ctx.fillStyle = `hsla(${card.bgHue},30%,5%,0.70)`;
+    ctx.fillStyle = `hsla(${card.bgHue},30%,5%,0.50)`;
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
     // ── 上下の装飾ライン ──────────────────────
