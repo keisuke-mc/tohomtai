@@ -185,9 +185,9 @@ class InputManager {
 //  PlayerBullet - 自機の弾
 // ============================================================
 class PlayerBullet {
-  constructor(x, y, vx=0, vy=-16) {
+  constructor(x, y, vx=0, vy=-16, power=10) {
     this.x=x; this.y=y; this.vx=vx; this.vy=vy;
-    this.radius=4; this.power=10; this.active=true;
+    this.radius=4; this.power=power; this.active=true;
   }
   update() {
     this.x+=this.vx; this.y+=this.vy;
@@ -371,6 +371,9 @@ class Player {
     this.bombActive=false;  // ボム発動中フラグ
     this.bombTimer=0;       // 発動中カウンター
     this.bombDuration=90;   // ボムの持続フレーム数
+    // ===== パワーアップシステム =====
+    this.powerLevel=0;      // Pアイテム取得数（0〜20）
+    this.powerMax=20;       // 最大パワーレベル
   }
 
   /**
@@ -395,13 +398,12 @@ class Player {
     if(this.shootCooldown>0) this.shootCooldown--;
     if((input.isDown('KeyZ')||input.isDown('Space'))&&this.shootCooldown===0){
       this.shootCooldown=this.shootInterval;
+      // パワーレベルに応じた弾の威力（基本10、最大30）
+      const bp = 10 + this.powerLevel;
       // 3列弾（左列・中央列・右列）
-      // 左列（x-8）
-      this.bullets.push(new PlayerBullet(this.x-8,  this.y-4,  -1.5, -15.5));
-      // 中央列（x）
-      this.bullets.push(new PlayerBullet(this.x,    this.y-12,  0.0, -16));
-      // 右列（x+8）
-      this.bullets.push(new PlayerBullet(this.x+8,  this.y-4,   1.5, -15.5));
+      this.bullets.push(new PlayerBullet(this.x-8,  this.y-4,  -1.5, -15.5, bp));
+      this.bullets.push(new PlayerBullet(this.x,    this.y-12,  0.0, -16,   bp));
+      this.bullets.push(new PlayerBullet(this.x+8,  this.y-4,   1.5, -15.5, bp));
     }
 
     // --- ボム発動処理（Xキーを押した瞬間だけ発動）---
@@ -570,6 +572,51 @@ class Particle {
     ctx.save(); ctx.globalAlpha=a;
     ctx.beginPath(); ctx.arc(this.x,this.y,Math.max(this.radius*a,0.5),0,Math.PI*2);
     ctx.fillStyle=this.color; ctx.shadowColor=this.color; ctx.shadowBlur=6; ctx.fill();
+    ctx.restore();
+  }
+}
+
+
+// ============================================================
+//  PowerItem - 敵撃破時にドロップするパワーアップアイテム
+//  赤い正方形に「P」マーク。取得すると自機の攻撃力が上昇する
+// ============================================================
+class PowerItem {
+  constructor(x, y) {
+    this.x=x; this.y=y;
+    this.vy=1.8; // ゆっくり落下
+    this.active=true;
+    this.animTick=0;
+    this.radius=9; // 当たり判定半径（正方形の半辺）
+    this.size=14;  // 描画サイズ
+  }
+
+  update() {
+    this.y += this.vy;
+    this.animTick++;
+    if(this.y > CANVAS_H+20) this.active=false;
+  }
+
+  draw(ctx) {
+    const t=this.animTick;
+    const pulse=0.85+Math.sin(t*0.15)*0.15; // 0.7〜1.0で点滅
+    ctx.save();
+    ctx.globalAlpha=pulse;
+    ctx.translate(this.x, this.y);
+    // 赤い正方形
+    const s=this.size;
+    ctx.shadowColor='#ff2222'; ctx.shadowBlur=12;
+    ctx.fillStyle='#cc0000';
+    ctx.fillRect(-s/2, -s/2, s, s);
+    // 明るい縁取り
+    ctx.strokeStyle='#ff8888'; ctx.lineWidth=1.5; ctx.shadowBlur=0;
+    ctx.strokeRect(-s/2, -s/2, s, s);
+    // 「P」文字
+    ctx.fillStyle='#ffffff';
+    ctx.font=`bold ${s-2}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='#ffffff'; ctx.shadowBlur=6;
+    ctx.fillText('P', 0, 1);
     ctx.restore();
   }
 }
@@ -1105,10 +1152,13 @@ class Game {
     this.score=0; this.lives=3; this.hiScore=0;
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.bossDefeated=false;
+    this.powerItems=[]; // Pアイテムプール
     // ★ 雑魚敵弾の共通プール（敵が消えても弾はここに残り続ける）
     this.enemyBullets=[];
     this.enemySpawnTimer=0; this.enemySpawnInterval=68;
     this.spawnWave=0;
+    this.gameTimer=0;           // プレイ開始からのフレーム数
+    this.bossSpawnTime=20*60;   // 20秒後（60fps × 20）にボス出現
     this.uiTick=0; this.flashOn=true; this.flashTimer=0;
     this.player=new Player();
     this.loop();
@@ -1119,7 +1169,9 @@ class Game {
     this.player=new Player();
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.enemyBullets=[]; this.bossDefeated=false;
+    this.powerItems=[];
     this.enemySpawnTimer=0; this.spawnWave=0;
+    this.gameTimer=0;
   }
 
   loop(){
@@ -1162,6 +1214,7 @@ class Game {
   }
 
   updatePlaying(){
+    this.gameTimer++;
     // 自機更新（ボム使用のためgameオブジェクトを渡す）
     this.player.update(this.input, this);
 
@@ -1174,18 +1227,15 @@ class Game {
       }
     }
 
-    // --- ボス出現（スコア3000）---
-    if(this.score>=3000&&!this.boss&&!this.bossDefeated){
+    // --- ボス出現（開始から20秒後）---
+    if(this.gameTimer>=this.bossSpawnTime&&!this.boss&&!this.bossDefeated){
       this.enemies=[]; this.boss=new Boss(this.player);
     }
 
     this.enemies.forEach(e=>e.update());
     this.enemies=this.enemies.filter(e=>e.active);
 
-    // ★ 共通プールの敵弾を更新し、画面外のものをインプレース削除する
-    //   ※ filter() は新配列を返すため this.enemyBullets の参照が切れてしまう。
-    //     Enemy.bulletPool は元の配列参照を持ち続けるので、
-    //     splice で同一配列を変更することで参照を維持する。
+    // ★ 共通プールの敵弾を更新（splice でインプレース削除）
     this.enemyBullets.forEach(b=>b.update());
     for(let i=this.enemyBullets.length-1;i>=0;i--){
       if(!this.enemyBullets[i].active) this.enemyBullets.splice(i,1);
@@ -1197,6 +1247,18 @@ class Game {
         this.score+=this.boss.score;
         this.spawnExplosion(this.boss.x,this.boss.y,'#ff8800',80);
         this.boss=null; this.bossDefeated=true;
+      }
+    }
+
+    // --- Pアイテム更新・取得判定 ---
+    this.powerItems.forEach(item=>item.update());
+    this.powerItems=this.powerItems.filter(item=>item.active);
+    for(const item of this.powerItems){
+      if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
+        item.active=false;
+        this.player.powerLevel=Math.min(this.player.powerLevel+1, this.player.powerMax);
+        // 取得エフェクト
+        this.spawnExplosion(item.x,item.y,'#ff4444',6);
       }
     }
 
@@ -1280,8 +1342,12 @@ class Game {
         if(!e.active) continue;
         if(dist(pb.x,pb.y,e.x,e.y)<pb.radius+e.radius){
           pb.active=false;
-          if(e.damage(pb.power)){ this.score+=e.score; this.spawnExplosion(e.x,e.y,'#ff88ff',18); }
-          else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
+          if(e.damage(pb.power)){
+            this.score+=e.score;
+            this.spawnExplosion(e.x,e.y,'#ff88ff',18);
+            // 敵撃破時に50%の確率でPアイテムをドロップ
+            if(Math.random()<0.5) this.powerItems.push(new PowerItem(e.x,e.y));
+          } else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
           break;
         }
       }
@@ -1358,11 +1424,14 @@ class Game {
     this.bombEffects.forEach(b=>b.draw(ctx));
     // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
     this.enemyBullets.forEach(b=>b.draw(ctx));
+    this.powerItems.forEach(item=>item.draw(ctx));
     this.enemies.forEach(e=>e.draw(ctx));
     if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
     this.drawHUD(ctx);
-    if(this.score>=2600&&this.score<3000&&!this.boss&&!this.bossDefeated) this.drawWarning(ctx);
+    // ボス出現5秒前（15秒経過〜20秒）にWARNING表示
+    const warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
+    if(warn) this.drawWarning(ctx);
     if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
   }
 
@@ -1397,6 +1466,32 @@ class Game {
     }
     ctx.textAlign='center'; ctx.font='9px monospace'; ctx.fillStyle='#444466'; ctx.shadowBlur=0;
     ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`,CANVAS_W/2,20);
+
+    // ── パワーレベルバー（HUD右上）──
+    const pl=this.player.powerLevel, pm=this.player.powerMax;
+    const bx=CANVAS_W-90, by=26, bw=78, bh=7;
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(bx-1,by-1,bw+2,bh+2);
+    const pHue = 60 + (pl/pm)*60; // 黄→緑
+    ctx.fillStyle=`hsl(${pHue},100%,55%)`; ctx.shadowColor=`hsl(${pHue},100%,60%)`; ctx.shadowBlur=6;
+    ctx.fillRect(bx, by, bw*(pl/pm), bh);
+    ctx.shadowBlur=0; ctx.fillStyle='#aaaacc';
+    ctx.font='7px monospace'; ctx.textAlign='left';
+    ctx.fillText(`POW  ${pl}/${pm}`, bx, by-2);
+
+    // ── ボス出現カウントダウン（ボスがいない間のみ）──
+    if(!this.boss && !this.bossDefeated){
+      const remaining = Math.max(0, Math.ceil((this.bossSpawnTime - this.gameTimer)/60));
+      const cx2=CANVAS_W/2, cy2=32;
+      ctx.textAlign='center';
+      if(remaining>0){
+        ctx.font='bold 11px monospace';
+        ctx.fillStyle= remaining<=5 ? '#ff4444' : '#aaaacc';
+        ctx.shadowColor= remaining<=5 ? '#ff0000' : 'transparent';
+        ctx.shadowBlur= remaining<=5 ? 10 : 0;
+        ctx.fillText(`BOSS  ${remaining}s`, cx2, cy2);
+      }
+    }
+
     ctx.restore();
   }
 
