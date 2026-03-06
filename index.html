@@ -623,6 +623,45 @@ class PowerItem {
 
 
 // ============================================================
+//  BombItem - ボムアップアイテム
+//  青い正方形に白カタカナ「ボ」。取得でボム+1
+// ============================================================
+class BombItem {
+  constructor(x, y) {
+    this.x=x; this.y=y;
+    this.vy=1.8;
+    this.active=true;
+    this.animTick=0;
+    this.radius=9;
+    this.size=14;
+  }
+  update() {
+    this.y += this.vy;
+    this.animTick++;
+    if(this.y > CANVAS_H+20) this.active=false;
+  }
+  draw(ctx) {
+    const pulse=0.85+Math.sin(this.animTick*0.15)*0.15;
+    ctx.save();
+    ctx.globalAlpha=pulse;
+    ctx.translate(this.x, this.y);
+    const s=this.size;
+    ctx.shadowColor='#2255ff'; ctx.shadowBlur=12;
+    ctx.fillStyle='#0033cc';
+    ctx.fillRect(-s/2, -s/2, s, s);
+    ctx.strokeStyle='#88aaff'; ctx.lineWidth=1.5; ctx.shadowBlur=0;
+    ctx.strokeRect(-s/2, -s/2, s, s);
+    ctx.fillStyle='#ffffff';
+    ctx.font=`bold ${s-2}px monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='#ffffff'; ctx.shadowBlur=6;
+    ctx.fillText('ボ', 0, 1);
+    ctx.restore();
+  }
+}
+
+
+// ============================================================
 //  Enemy - 雑魚敵（強化版）
 //  4タイプの異なる弾幕パターンと高HPを持つ
 //  ★ 弾はゲーム共通プール(bulletPool)に発射する
@@ -756,8 +795,9 @@ class Enemy {
 //  5枚のスペルカードシステムを持つ最強の敵
 // ============================================================
 class Boss {
-  constructor(player) {
+  constructor(player, game) {
     this.player=player;
+    this.game=game; // アイテムドロップのためゲーム参照を保持
     this.x=CANVAS_W/2; this.y=-60; this.targetY=100;
     this.radius=32; this.animTick=0; this.patternTimer=0;
     this.spiralAngle=0; this.moveTimer=0;
@@ -896,6 +936,17 @@ class Boss {
 
   /** スペルカードを次に進める */
   nextSpellCard(){
+    // スペルカード撃破時のアイテムドロップ（ゲームに通知）
+    if(this.game){
+      // Pアイテム 3〜5個
+      const pCount = randInt(3,6);
+      for(let i=0;i<pCount;i++){
+        const ox=randFloat(-40,40), oy=randFloat(0,30);
+        this.game.powerItems.push(new PowerItem(this.x+ox, this.y+oy));
+      }
+      // ボムアイテム 1個
+      this.game.bombItems.push(new BombItem(this.x+randFloat(-20,20), this.y+randFloat(0,20)));
+    }
     this.currentCard++;
     if(this.currentCard>=this.spellCards.length){ this.active=false; return; }
     const c=this.spellCards[this.currentCard];
@@ -1153,6 +1204,7 @@ class Game {
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.bossDefeated=false;
     this.powerItems=[]; // Pアイテムプール
+    this.bombItems=[];  // ボムアイテムプール
     // ★ 雑魚敵弾の共通プール（敵が消えても弾はここに残り続ける）
     this.enemyBullets=[];
     this.enemySpawnTimer=0; this.enemySpawnInterval=68;
@@ -1170,6 +1222,7 @@ class Game {
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.enemyBullets=[]; this.bossDefeated=false;
     this.powerItems=[];
+    this.bombItems=[];
     this.enemySpawnTimer=0; this.spawnWave=0;
     this.gameTimer=0;
   }
@@ -1229,7 +1282,7 @@ class Game {
 
     // --- ボス出現（開始から20秒後）---
     if(this.gameTimer>=this.bossSpawnTime&&!this.boss&&!this.bossDefeated){
-      this.enemies=[]; this.boss=new Boss(this.player);
+      this.enemies=[]; this.boss=new Boss(this.player, this);
     }
 
     this.enemies.forEach(e=>e.update());
@@ -1257,8 +1310,18 @@ class Game {
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
         this.player.powerLevel=Math.min(this.player.powerLevel+1, this.player.powerMax);
-        // 取得エフェクト
         this.spawnExplosion(item.x,item.y,'#ff4444',6);
+      }
+    }
+
+    // --- ボムアイテム更新・取得判定 ---
+    this.bombItems.forEach(item=>item.update());
+    this.bombItems=this.bombItems.filter(item=>item.active);
+    for(const item of this.bombItems){
+      if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
+        item.active=false;
+        this.player.bombs=Math.min(this.player.bombs+1, 9); // 最大9個まで
+        this.spawnExplosion(item.x,item.y,'#4466ff',6);
       }
     }
 
@@ -1345,8 +1408,9 @@ class Game {
           if(e.damage(pb.power)){
             this.score+=e.score;
             this.spawnExplosion(e.x,e.y,'#ff88ff',18);
-            // 敵撃破時に50%の確率でPアイテムをドロップ
+            // 敵撃破時に50%の確率でPアイテム、20%の確率でボムアイテムをドロップ
             if(Math.random()<0.5) this.powerItems.push(new PowerItem(e.x,e.y));
+            if(Math.random()<0.2) this.bombItems.push(new BombItem(e.x,e.y));
           } else this.spawnExplosion(pb.x,pb.y,'#ffffff',3);
           break;
         }
@@ -1425,6 +1489,7 @@ class Game {
     // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
     this.enemyBullets.forEach(b=>b.draw(ctx));
     this.powerItems.forEach(item=>item.draw(ctx));
+    this.bombItems.forEach(item=>item.draw(ctx));
     this.enemies.forEach(e=>e.draw(ctx));
     if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
