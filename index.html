@@ -439,7 +439,7 @@ class Player {
     if (PLAYER_IMG) {
       // 左右移動中に最大15度傾ける
       const dx = (input&&input.isDown('ArrowLeft')?-1:0)+(input&&input.isDown('ArrowRight')?1:0);
-      const tiltAngle = dx * (15 * Math.PI / 180);
+      const tiltAngle = dx * (13 * Math.PI / 180);
 
       ctx.save();
       ctx.translate(this.x, this.y);
