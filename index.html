@@ -140,7 +140,7 @@ const BOSS_IMG_H = 80;
 //    { src: 'bg/layer3.png', speed: 2.0, alpha: 0.7  }, // 手前・速い
 // ============================================================
 const BG_LAYERS = [
-  { src: 'bg/layer1.png'.png, speed: 0.4,  alpha: 1.0  },
+  { src: null, speed: 0.4,  alpha: 1.0  },
   { src: null, speed: 1.0,  alpha: 0.85 },
   { src: null, speed: 2.0,  alpha: 0.70 },
 ];
@@ -211,59 +211,34 @@ function randFloat(mn,mx){ return Math.random()*(mx-mn)+mn; }
 // ============================================================
 class SoundManager {
   constructor() {
-    this._ctx     = null;
-    this._ready   = false;
-    this._buffers = {};
-    try {
-      this._ctx   = new (window.AudioContext || window.webkitAudioContext)();
-      this._ready = true;
-    } catch(e) { return; }
-    try {
-      Object.entries(SE_CONFIG).forEach(([name, cfg]) => {
-        if (cfg && cfg.src) this._load(name, cfg.src);
-      });
-    } catch(e) {}
+    // HTMLAudioElement 方式：
+    // XHR/WebAudioAPIのCORS制限を受けず、file://プロトコルでも動作する
+    this._audios  = {};  // name -> HTMLAudioElement（プリロード済み）
+    this._ready   = true;
+    Object.entries(SE_CONFIG).forEach(([name, cfg]) => {
+      if (cfg && cfg.src) this._load(name, cfg.src, cfg.volume ?? 1.0);
+    });
   }
-  _load(name, src) {
-    if (!this._ready) return;
+  _load(name, src, volume) {
     try {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', src, true);
-      xhr.responseType = 'arraybuffer';
-      xhr.onload = () => {
-        try {
-          if (xhr.status === 0 || xhr.status === 200) {
-            this._ctx.decodeAudioData(
-              xhr.response,
-              buf => { this._buffers[name] = buf; },
-              () => {}
-            );
-          }
-        } catch(e) {}
-      };
-      xhr.onerror = () => {};
-      xhr.send();
+      const audio = new Audio(src);
+      audio.preload = 'auto';
+      audio.volume  = volume;
+      this._audios[name] = audio;
     } catch(e) {}
   }
   play(name) {
-    if (!this._ready || !this._buffers[name]) return;
+    const base = this._audios[name];
+    if (!base) return;
     try {
-      if (this._ctx.state === 'suspended') this._ctx.resume();
-      const s  = this._ctx.createBufferSource();
-      const g  = this._ctx.createGain();
-      s.buffer     = this._buffers[name];
-      g.gain.value = (SE_CONFIG[name] && SE_CONFIG[name].volume != null)
-                     ? SE_CONFIG[name].volume : 1.0;
-      s.connect(g);
-      g.connect(this._ctx.destination);
-      s.start(0);
+      // cloneNode() でインスタンスを複製 → 同じ音を重ねて鳴らせる
+      const clone = base.cloneNode();
+      clone.volume = base.volume;
+      clone.play().catch(() => {});
     } catch(e) {}
   }
-  resume() {
-    try {
-      if (this._ready && this._ctx.state === 'suspended') this._ctx.resume();
-    } catch(e) {}
-  }
+  // 互換性のため resume() は残すが何もしなくてよい
+  resume() {}
 }
 
 // ============================================================
