@@ -156,7 +156,7 @@ const SE_CONFIG = {
   enemyShoot:  { src: 'soundeffects/enemy_shoot.wav',   volume: 0.4 },
   bossShoot:   { src: 'soundeffects/boss_shoot.wav',    volume: 0.5 },
   bomb:        { src: 'soundeffects/bomb.wav',           volume: 0.9 },
-  playerHit:   { src: 'player_hit.wav',    volume: 0.8 },
+  playerHit:   { src: 'soundeffects/player_hit.wav',    volume: 0.8 },
   spellCard:   { src: 'soundeffects/spell_card.wav',    volume: 0.8 },
   enemyDeath:  { src: 'soundeffects/enemy_death.wav',   volume: 0.5 },
   powerItem:   { src: 'soundeffects/power_item.wav',    volume: 0.6 },
@@ -211,34 +211,56 @@ function randFloat(mn,mx){ return Math.random()*(mx-mn)+mn; }
 // ============================================================
 class SoundManager {
   constructor() {
-    // HTMLAudioElement 方式：
-    // XHR/WebAudioAPIのCORS制限を受けず、file://プロトコルでも動作する
-    this._audios  = {};  // name -> HTMLAudioElement（プリロード済み）
-    this._ready   = true;
+    this._buffers = {};   // name -> AudioBuffer
+    this._ctx     = null;
+    this._unlocked = false;
+    try {
+      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch(e) { return; }
+    // SE_CONFIG の全エントリを fetch でロード
     Object.entries(SE_CONFIG).forEach(([name, cfg]) => {
-      if (cfg && cfg.src) this._load(name, cfg.src, cfg.volume ?? 1.0);
+      if (cfg && cfg.src) this._load(name, cfg.src);
     });
   }
-  _load(name, src, volume) {
-    try {
-      const audio = new Audio(src);
-      audio.preload = 'auto';
-      audio.volume  = volume;
-      this._audios[name] = audio;
-    } catch(e) {}
+
+  _load(name, src) {
+    if (!this._ctx) return;
+    fetch(src)
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      })
+      .then(buf => this._ctx.decodeAudioData(buf))
+      .then(decoded => { this._buffers[name] = decoded; })
+      .catch(() => { /* ファイル未配置はスキップ */ });
   }
+
+  // ユーザー操作のタイミングで呼ぶ。
+  // AudioContext が suspended の場合は resume し、
+  // 無音バッファを1度再生して「解除済み」状態にする。
+  resume() {
+    if (!this._ctx) return;
+    // 即座に unlocked フラグを立てる（Promiseを待たない）
+    this._unlocked = true;
+    if (this._ctx.state === 'suspended') {
+      this._ctx.resume().catch(() => {});
+    }
+  }
+
   play(name) {
-    const base = this._audios[name];
-    if (!base) return;
+    if (!this._ctx || !this._buffers[name] || !this._unlocked) return;
     try {
-      // cloneNode() でインスタンスを複製 → 同じ音を重ねて鳴らせる
-      const clone = base.cloneNode();
-      clone.volume = base.volume;
-      clone.play().catch(() => {});
+      if (this._ctx.state === 'suspended') this._ctx.resume().catch(() => {});
+      const cfg  = SE_CONFIG[name];
+      const src  = this._ctx.createBufferSource();
+      const gain = this._ctx.createGain();
+      src.buffer      = this._buffers[name];
+      gain.gain.value = (cfg && cfg.volume != null) ? cfg.volume : 1.0;
+      src.connect(gain);
+      gain.connect(this._ctx.destination);
+      src.start(0);
     } catch(e) {}
   }
-  // 互換性のため resume() は残すが何もしなくてよい
-  resume() {}
 }
 
 // ============================================================
@@ -450,7 +472,7 @@ class Player {
     // ===== 復活システム =====
     this.respawning      = false;
     this.respawnTimer    = 0;
-    this.respawnDuration = 30;
+    this.respawnDuration = 60;
     this.respawnStartY   = CANVAS_H + 30;
     this.respawnEndY     = CANVAS_H - 100;
     // ===== ボムシステム =====
@@ -1337,8 +1359,10 @@ class Game {
     this.input=new InputManager();
     this.starField=new ParallaxBackground();
     try { window._SE = new SoundManager(); } catch(e) { window._SE = null; }
-    window.addEventListener('keydown', function(){ if(window._SE) window._SE.resume(); }, {once:true});
-    window.addEventListener('click',   function(){ if(window._SE) window._SE.resume(); }, {once:true});
+    // ユーザー操作のたびに resume() を試みる（AudioContext解除が確実になる）
+    window.addEventListener('keydown', function(){ if(window._SE) window._SE.resume(); });
+    window.addEventListener('click',   function(){ if(window._SE) window._SE.resume(); });
+    window.addEventListener('pointerdown', function(){ if(window._SE) window._SE.resume(); });
     this.state=STATE.START;
     this.score=0; this.lives=3; this.hiScore=0;
     this.enemies=[]; this.boss=null; this.particles=[];
