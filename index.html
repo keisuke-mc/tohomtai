@@ -211,13 +211,15 @@ function randFloat(mn,mx){ return Math.random()*(mx-mn)+mn; }
 // ============================================================
 class SoundManager {
   constructor() {
-    this._buffers = {};   // name -> AudioBuffer
+    this._buffers = {};
     this._ctx     = null;
-    this._unlocked = false;
     try {
       this._ctx = new (window.AudioContext || window.webkitAudioContext)();
-    } catch(e) { return; }
-    // SE_CONFIG の全エントリを fetch でロード
+    } catch(e) {
+      console.warn('[SE] AudioContext 生成失敗:', e);
+      return;
+    }
+    // fetch で全効果音をロード
     Object.entries(SE_CONFIG).forEach(([name, cfg]) => {
       if (cfg && cfg.src) this._load(name, cfg.src);
     });
@@ -230,36 +232,52 @@ class SoundManager {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.arrayBuffer();
       })
-      .then(buf => this._ctx.decodeAudioData(buf))
-      .then(decoded => { this._buffers[name] = decoded; })
-      .catch(() => { /* ファイル未配置はスキップ */ });
+      .then(arrayBuf => {
+        // Safari は decodeAudioData が Promise を返さないため
+        // コールバック形式で統一する
+        return new Promise((resolve, reject) => {
+          this._ctx.decodeAudioData(arrayBuf, resolve, reject);
+        });
+      })
+      .then(decoded => {
+        this._buffers[name] = decoded;
+        console.log('[SE] ロード成功:', name);
+      })
+      .catch(e => {
+        console.warn('[SE] ロード失敗:', name, e);
+      });
   }
 
-  // ユーザー操作のタイミングで呼ぶ。
-  // AudioContext が suspended の場合は resume し、
-  // 無音バッファを1度再生して「解除済み」状態にする。
+  // キー/クリック操作で必ず呼ぶ。suspended → running にする。
   resume() {
     if (!this._ctx) return;
-    // 即座に unlocked フラグを立てる（Promiseを待たない）
-    this._unlocked = true;
     if (this._ctx.state === 'suspended') {
       this._ctx.resume().catch(() => {});
     }
   }
 
   play(name) {
-    if (!this._ctx || !this._buffers[name] || !this._unlocked) return;
-    try {
-      if (this._ctx.state === 'suspended') this._ctx.resume().catch(() => {});
-      const cfg  = SE_CONFIG[name];
-      const src  = this._ctx.createBufferSource();
-      const gain = this._ctx.createGain();
-      src.buffer      = this._buffers[name];
-      gain.gain.value = (cfg && cfg.volume != null) ? cfg.volume : 1.0;
-      src.connect(gain);
-      gain.connect(this._ctx.destination);
-      src.start(0);
-    } catch(e) {}
+    if (!this._ctx || !this._buffers[name]) return;
+    // suspended のまま start() すると無音になるブラウザがあるため
+    // running になってから再生する
+    const doPlay = () => {
+      try {
+        const cfg  = SE_CONFIG[name];
+        const s    = this._ctx.createBufferSource();
+        const g    = this._ctx.createGain();
+        s.buffer     = this._buffers[name];
+        g.gain.value = (cfg && cfg.volume != null) ? cfg.volume : 1.0;
+        s.connect(g);
+        g.connect(this._ctx.destination);
+        s.start(0);
+      } catch(e) {}
+    };
+    if (this._ctx.state === 'running') {
+      doPlay();
+    } else {
+      // suspended なら resume してから再生
+      this._ctx.resume().then(doPlay).catch(() => {});
+    }
   }
 }
 
