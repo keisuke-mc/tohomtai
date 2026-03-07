@@ -1574,8 +1574,8 @@ class Game {
         if(!eb.active) continue;
         if(dist(player.x,player.y,eb.x,eb.y)<player.hitRadius+eb.hitRadius){
           eb.active=false;
+          window._SE && window._SE.play('playerHit');
           if(player.hit()){
-            window._SE && window._SE.play('playerHit');
             this.lives--;
             this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
             if(this.lives<=0){ if(this.score>this.hiScore) this.hiScore=this.score; this.state=STATE.GAMEOVER; }
