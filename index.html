@@ -151,6 +151,18 @@ const BG_LAYERS = [
 //  ファイルが存在しない場合は自動的に無音スキップします。
 //  volume: 音量（0.0〜1.0）。src: null にすると無効化。
 // ============================================================
+// ============================================================
+//  【BGM設定】
+//  bgm フォルダに音楽ファイルを入れて設定してください。
+//  対応フォーマット: MP3 / OGG / WAV
+//  src: null にすると無効（無音）。
+//  volume: 音量（0.0〜1.0）。loop: true でループ再生。
+// ============================================================
+const BGM_CONFIG = {
+  stage: { src: 'bgm/stage.mp3',  volume: 0.5, loop: true }, // 道中BGM
+  boss:  { src: 'bgm/boss.mp3',   volume: 0.6, loop: true }, // ボス戦BGM
+};
+
 const SE_CONFIG = {
   playerShoot: { src: 'soundeffects/player_shoot.wav',  volume: 0.1 },
   enemyShoot:  { src: 'soundeffects/enemy_shoot.wav',   volume: 0.4 },
@@ -158,6 +170,7 @@ const SE_CONFIG = {
   bomb:        { src: 'soundeffects/bomb.wav',           volume: 0.9 },
   playerHit:   { src: 'soundeffects/player_hit.wav',    volume: 0.8 },
   spellCard:   { src: 'soundeffects/spell_card.wav',    volume: 0.8 },
+  playerBulletHit: { src: 'soundeffects/player_bullet_hit.wav', volume: 0.8 }, // 自機弾 命中
   enemyDeath:  { src: 'soundeffects/enemy_death.wav',   volume: 0.5 },
   powerItem:   { src: 'soundeffects/power_item.wav',    volume: 0.6 },
   bombItem:    { src: 'soundeffects/bomb_item.wav',     volume: 0.6 },
@@ -280,6 +293,59 @@ class SoundManager {
     }
   }
 }
+
+// ============================================================
+//  BGMManager - ループBGM管理
+//  HTMLAudioElement を使用（ループ・フェード対応）
+// ============================================================
+class BGMManager {
+  constructor() {
+    this._current = null;  // 再生中の Audio
+    this._name    = null;  // 再生中のキー名
+    this._audios  = {};    // name -> Audio（キャッシュ）
+    // BGM_CONFIG の src が null でないものを事前生成
+    Object.entries(BGM_CONFIG).forEach(([name, cfg]) => {
+      if (!cfg || !cfg.src) return;
+      try {
+        const a = new Audio(cfg.src);
+        a.loop   = cfg.loop  ?? true;
+        a.volume = cfg.volume ?? 0.5;
+        a.preload = 'auto';
+        this._audios[name] = a;
+      } catch(e) {}
+    });
+  }
+
+  /** BGMを切り替えて再生。同じトラックが既に流れていれば何もしない */
+  play(name) {
+    if (this._name === name && this._current && !this._current.paused) return;
+    this.stop();
+    const a = this._audios[name];
+    if (!a) return;
+    this._current = a;
+    this._name    = name;
+    a.currentTime = 0;
+    a.play().catch(() => {});
+  }
+
+  /** BGMを停止 */
+  stop() {
+    if (this._current) {
+      this._current.pause();
+      this._current.currentTime = 0;
+    }
+    this._current = null;
+    this._name    = null;
+  }
+
+  /** 音量をリアルタイム変更 */
+  setVolume(name, vol) {
+    if (this._audios[name]) this._audios[name].volume = vol;
+  }
+}
+
+// グローバルBGMインスタンス
+window._BGM = null;
 
 // ============================================================
 //  InputManager - キーボード入力の一元管理
@@ -1377,6 +1443,7 @@ class Game {
     this.input=new InputManager();
     this.starField=new ParallaxBackground();
     try { window._SE = new SoundManager(); } catch(e) { window._SE = null; }
+    try { window._BGM = new BGMManager(); } catch(e) { window._BGM = null; }
     // ユーザー操作のたびに resume() を試みる（AudioContext解除が確実になる）
     window.addEventListener('keydown', function(){ if(window._SE) window._SE.resume(); });
     window.addEventListener('click',   function(){ if(window._SE) window._SE.resume(); });
@@ -1399,6 +1466,7 @@ class Game {
   }
 
   reset(){
+    window._BGM && window._BGM.stop();
     this.score=0; this.lives=3;
     this.player=new Player();
     this.enemies=[]; this.boss=null; this.particles=[];
@@ -1440,16 +1508,29 @@ class Game {
   }
 
   updateStart(){
+    window._BGM && window._BGM.stop();
     if(this.input.isJustPressed('Space')){ this.reset(); this.state=STATE.PLAYING; }
     this.flashTimer++; if(this.flashTimer>28){this.flashOn=!this.flashOn;this.flashTimer=0;}
   }
 
   updateGameOver(){
+    window._BGM && window._BGM.stop();
     if(this.input.isJustPressed('KeyR')){ this.reset(); this.state=STATE.PLAYING; }
   }
 
   updatePlaying(){
     this.gameTimer++;
+
+    // --- BGM制御 ---
+    if (!this.bossDefeated) {
+      if (this.boss) {
+        window._BGM && window._BGM.play('boss');
+      } else {
+        window._BGM && window._BGM.play('stage');
+      }
+    } else {
+      window._BGM && window._BGM.stop();
+    }
     // 自機更新（ボム使用のためgameオブジェクトを渡す）
     this.player.update(this.input, this);
 
@@ -1592,6 +1673,7 @@ class Game {
         if(!e.active) continue;
         if(dist(pb.x,pb.y,e.x,e.y)<pb.radius+e.radius){
           pb.active=false;
+          window._SE && window._SE.play('playerBulletHit');
           if(e.damage(pb.power)){
             this.score+=e.score;
             window._SE && window._SE.play('enemyDeath');
