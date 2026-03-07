@@ -644,6 +644,7 @@ class Player {
     this.x              = CANVAS_W / 2;
     this.y              = this.respawnStartY;
     this.bullets        = [];
+    this.bombs          = 3; // 被弾時にボムを3にリセット
     return true;
   }
 
@@ -1693,6 +1694,7 @@ class Game {
         if(!pb.active) continue;
         if(dist(pb.x,pb.y,this.boss.x,this.boss.y)<pb.radius+this.boss.radius){
           pb.active=false;
+          window._SE && window._SE.play('playerBulletHit');
           if(!this.boss.damage(pb.power)) this.spawnExplosion(pb.x,pb.y,'#ffffff',2);
         }
       }
