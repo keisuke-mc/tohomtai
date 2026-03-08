@@ -3,7 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>東方二次創作弾幕シューティング - 幻想郷の戦い</title>
+  <title>東方二次創作弾幕シューティング 東方秘荘郷</title>
+
+  <!-- OGP -->
+  <!-- OGP画像を設定する場合: ogp.png などをリポジトリに置き下記のパスを編集してください -->
+  <!-- <meta property="og:image" content="https://あなたのユーザー名.github.io/リポジトリ名/ogp.png"> -->
+  <meta property="og:title"       content="東方二次創作弾幕シューティング 東方秘荘郷">
+  <meta property="og:description" content="東方風の弾幕シューティングゲームです。スペルカード5枚のボスに挑め！">
+  <meta property="og:type"        content="website">
+  <meta property="og:locale"      content="ja_JP">
+  <meta name="twitter:card"       content="summary_large_image">
+  <meta name="twitter:title"      content="東方二次創作弾幕シューティング 東方秘荘郷">
+  <meta name="twitter:description" content="東方風の弾幕シューティングゲームです。スペルカード5枚のボスに挑め！">
+  <!-- <meta name="twitter:image"   content="https://あなたのユーザー名.github.io/リポジトリ名/ogp.png"> -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -135,8 +147,8 @@ const BG_LAYERS = [
 //  volume: 音量（0.0〜1.0）。loop: true でループ再生。
 // ============================================================
 const BGM_CONFIG = {
-  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '神々が恋した幻想郷' }, // 道中BGM
-  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: 'UN.オーエンは彼女なのか？〜アレンジ〜' }, // ボス戦BGM
+  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '曲名をここに入力' }, // 道中BGM
+  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: '曲名をここに入力' }, // ボス戦BGM
 };
 
 const SE_CONFIG = {
@@ -1817,7 +1829,7 @@ class Game {
     ctx.textAlign='center';
     ctx.font='bold 15px serif'; ctx.fillStyle='rgba(210,170,255,0.92)';
     ctx.shadowColor='#9955ff'; ctx.shadowBlur=12;
-    ctx.fillText('東方二次創作弾幕シューティング', W/2, 33);
+    ctx.fillText('東方二次創作弾幕シューティング 東方秘荘郷', W/2, 33);
     ctx.shadowBlur=0;
 
     // ── 散りばめられた漢字 ──
@@ -1927,6 +1939,8 @@ class Game {
     this.enemies.forEach(e=>e.draw(ctx));
     if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
+    // ── 曲名表示（ゲームエリア内に描画）──
+    if (this._trackTitle) this.drawTrackTitle(ctx);
     ctx.restore();
     // 右パネルHUD（クリップ外に描画）
     this.drawHUD(ctx);
@@ -1934,6 +1948,63 @@ class Game {
     const warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
     if(warn) this.drawWarning(ctx);
     if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
+  }
+
+  /** ゲームエリア内に曲名を表示（縦書き3秒→右上横書き常時） */
+  drawTrackTitle(ctx){
+    const VERT_FRAMES = 180; // 縦書き表示（3秒@60fps）
+    const FADE        = 30;  // フェード時間
+    const timer = this._trackTimer;
+    const title = this._trackTitle;
+    if (!title) return;
+
+    if (timer <= VERT_FRAMES) {
+      // ── 縦書き：画面右下 ──
+      const fadeIn  = Math.min(timer / FADE, 1.0);
+      const fadeOut = timer > VERT_FRAMES - FADE
+                      ? 1.0 - (timer - (VERT_FRAMES - FADE)) / FADE
+                      : 1.0;
+      const alpha = fadeIn * fadeOut;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = 'bold 15px serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle   = '#ffe8ff';
+      ctx.shadowColor = '#cc66ff';
+      ctx.shadowBlur  = 16;
+
+      const chars  = title.split('');
+      const charH  = 18;
+      const textX  = CANVAS_W - 22;
+      // 文字列を下から上へ並べる（最後の文字が一番上）
+      const bottomY = CANVAS_H - 60;
+      chars.forEach((ch, i) => {
+        const cy = bottomY - (chars.length - 1 - i) * charH;
+        ctx.fillText(ch, textX, cy);
+      });
+
+      // 「♪」マーク（一番下）
+      ctx.font = '12px serif';
+      ctx.fillStyle = '#cc88ff';
+      ctx.shadowBlur = 8;
+      ctx.fillText('♪', textX, bottomY + 18);
+
+      ctx.restore();
+
+    } else {
+      // ── 横書き：左上・小さく常時表示 ──
+      const fadeIn = Math.min((timer - VERT_FRAMES) / FADE, 1.0);
+      ctx.save();
+      ctx.globalAlpha = fadeIn * 0.75;
+      ctx.font = 'bold 10px serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle   = '#ffe8ff';
+      ctx.shadowColor = '#cc66ff';
+      ctx.shadowBlur  = 8;
+      ctx.fillText('♪ ' + title, 8, 18);
+      ctx.restore();
+    }
   }
 
   /** 右パネルHUD：ハイスコア・スコア・残機・ボム・パワーバー・画像 */
@@ -2052,73 +2123,6 @@ class Game {
       ctx.fillStyle='rgba(80,60,120,0.7)';
       ctx.fillText('hud_image.png', imgX+imgSize/2, imgY+imgSize/2-5);
       ctx.fillText('を配置できます', imgX+imgSize/2, imgY+imgSize/2+10);
-    }
-
-    // ── 曲名表示 ──
-    if (this._trackTitle) {
-      const VERT_DURATION = 180;  // 縦書き表示フレーム数（3秒@60fps）
-      const FADE_FRAMES   = 30;   // フェードイン/アウトのフレーム数
-      const timer = this._trackTimer;
-
-      if (timer <= VERT_DURATION) {
-        // ── フェーズ1: 縦書き（右下）──
-        const fadeIn  = Math.min(timer / FADE_FRAMES, 1.0);
-        const fadeOut = timer > VERT_DURATION - FADE_FRAMES
-                        ? 1.0 - (timer - (VERT_DURATION - FADE_FRAMES)) / FADE_FRAMES
-                        : 1.0;
-        const alpha = fadeIn * fadeOut;
-
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.font = 'bold 13px serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle   = '#ffe8ff';
-        ctx.shadowColor = '#cc88ff';
-        ctx.shadowBlur  = 12;
-
-        // 縦書き：右下エリア（画像の上）
-        const imgSize = pw - 16;
-        const imgY    = ph - imgSize - 8;
-        const startY  = imgY - 16;  // 画像の上から上方向に文字を並べる
-        const chars   = this._trackTitle.split('');
-        const charH   = 16;
-        const totalH  = chars.length * charH;
-        const baseY   = startY - (totalH > startY - 100 ? 0 : 0);
-        const textX   = px + pw - 18;  // 右端付近
-
-        chars.forEach((ch, i) => {
-          const cy = startY - (chars.length - 1 - i) * charH;
-          if (cy > 80 && cy < imgY - 4) {
-            ctx.fillText(ch, textX, cy);
-          }
-        });
-        ctx.restore();
-
-      } else {
-        // ── フェーズ2: 横書き（右上・小さく常時表示）──
-        const fadeIn = Math.min((timer - VERT_DURATION) / FADE_FRAMES, 1.0);
-        ctx.save();
-        ctx.globalAlpha = fadeIn * 0.7;
-        ctx.font = '9px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillStyle   = '#ddccff';
-        ctx.shadowColor = '#aa66ff';
-        ctx.shadowBlur  = 6;
-        ctx.fillText('♪ ' + this._trackTitle, px + pw - 10, 14);
-        ctx.restore();
-      }
-    }
-    // 曲名が固定フェーズに達したら引き続き右上に常時表示
-    if (this._trackTitle && this._trackTimer > 180 + 30) {
-      ctx.save();
-      ctx.globalAlpha = 0.7;
-      ctx.font = '9px monospace';
-      ctx.textAlign = 'right';
-      ctx.fillStyle   = '#ddccff';
-      ctx.shadowColor = '#aa66ff';
-      ctx.shadowBlur  = 6;
-      ctx.fillText('♪ ' + this._trackTitle, px + pw - 10, 14);
-      ctx.restore();
     }
 
     ctx.restore();
