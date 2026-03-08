@@ -150,6 +150,8 @@ const SE_CONFIG = {
   enemyDeath:  { src: 'soundeffects/enemy_death.wav',   volume: 0.5 },
   powerItem:   { src: 'soundeffects/power_item.wav',    volume: 0.6 },
   bombItem:    { src: 'soundeffects/bomb_item.wav',     volume: 0.6 },
+  menuMove:    { src: 'soundeffects/menu_move.wav',      volume: 0.7 }, // メニュー移動
+  menuSelect:  { src: 'soundeffects/menu_select.wav',    volume: 0.8 }, // メニュー決定
 };
 
 // 画像を非同期でロードし、完了したら変数に格納する
@@ -1458,14 +1460,19 @@ class Game {
     this.player=new Player();
     // タイトル画面のマウスインタラクション
     this._titleHover = null;
+    this._menuIndex = 0;  // 0=PLAY, 1=SETTINGS（上下で選択）
     this.canvas.addEventListener('click', e => {
       if(this.state !== STATE.START) return;
       const r = this.canvas.getBoundingClientRect();
       const sx = TOTAL_W / r.width, sy = CANVAS_H / r.height;
       const mx = (e.clientX - r.left)*sx, my = (e.clientY - r.top)*sy;
-      // PLAYボタン領域 (大まかに中央右側)
-      if(mx >= 310 && mx <= 560 && my >= 305 && my <= 350){
-        this.reset(); this.state = STATE.PLAYING;
+      // PLAYボタン領域
+      if(mx >= 410 && mx <= 590 && my >= 315 && my <= 350){
+        this._menuIndex = 0; this._selectMenu();
+      }
+      // SETTINGSボタン領域
+      if(mx >= 410 && mx <= 590 && my >= 358 && my <= 395){
+        this._menuIndex = 1; this._selectMenu();
       }
     });
     this.canvas.addEventListener('mousemove', e => {
@@ -1473,14 +1480,28 @@ class Game {
       const sx = TOTAL_W / r.width, sy = CANVAS_H / r.height;
       const mx = (e.clientX - r.left)*sx, my = (e.clientY - r.top)*sy;
       if(this.state === STATE.START){
-        const over = mx >= 310 && mx <= 560 && my >= 305 && my <= 350;
-        this.canvas.style.cursor = over ? 'pointer' : 'default';
-        this._titleHover = over ? 'play' : null;
+        const onPlay     = mx >= 410 && mx <= 590 && my >= 315 && my <= 350;
+        const onSettings = mx >= 410 && mx <= 590 && my >= 358 && my <= 395;
+        const prev = this._titleHover;
+        this._titleHover = onPlay ? 'play' : onSettings ? 'settings' : null;
+        if(this._titleHover === 'play'     && prev !== 'play')     { this._menuIndex=0; window._SE&&window._SE.play('menuMove'); }
+        if(this._titleHover === 'settings' && prev !== 'settings') { this._menuIndex=1; window._SE&&window._SE.play('menuMove'); }
+        this.canvas.style.cursor = (onPlay||onSettings) ? 'pointer' : 'default';
       } else {
         this.canvas.style.cursor = 'default';
+        this._titleHover = null;
       }
     });
     this.loop();
+  }
+
+  _selectMenu(){
+    if(this._menuIndex === 0){
+      window._SE && window._SE.play('menuSelect');
+      this.reset(); this.state = STATE.PLAYING;
+    }
+    // SETTINGS は未実装（音だけ鳴らす）
+    // else { window._SE && window._SE.play('menuSelect'); }
   }
 
   reset(){
@@ -1527,7 +1548,16 @@ class Game {
 
   updateStart(){
     window._BGM && window._BGM.stop();
-    if(this.input.isJustPressed('Space')){ this.reset(); this.state=STATE.PLAYING; }
+    // 上下でメニュー項目移動
+    if(this.input.isJustPressed('ArrowUp') || this.input.isJustPressed('ArrowDown')){
+      const prev = this._menuIndex;
+      this._menuIndex = this._menuIndex === 0 ? 1 : 0;
+      if(this._menuIndex !== prev) window._SE && window._SE.play('menuMove');
+    }
+    // Space / Z で決定
+    if(this.input.isJustPressed('Space') || this.input.isJustPressed('KeyZ')){
+      this._selectMenu();
+    }
     this.flashTimer++; if(this.flashTimer>28){this.flashOn=!this.flashOn;this.flashTimer=0;}
   }
 
@@ -1798,31 +1828,43 @@ class Game {
     ctx.fillStyle='rgba(180,140,255,0.6)'; ctx.shadowBlur=0;
     ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`, mx, 290);
 
-    // PLAYボタン
-    const playHover = this._titleHover==='play';
-    ctx.font=`bold 22px serif`;
-    ctx.fillStyle = playHover ? '#ffffff' : '#ffee88';
-    ctx.shadowColor = playHover ? '#ffffff' : '#ffaa00';
-    ctx.shadowBlur  = playHover ? 28 : 10;
-    ctx.fillText('▶  PLAY', mx, 335);
-    // ホバー時アンダーライン
-    if(playHover){
-      ctx.strokeStyle='rgba(255,240,120,0.7)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(mx,340); ctx.lineTo(mx+130,340); ctx.stroke();
-    }
-    ctx.shadowBlur=0;
-
-    // SETTINGSボタン（未実装・グレーアウト）
-    ctx.font='15px serif'; ctx.fillStyle='rgba(90,80,120,0.7)';
-    ctx.fillText('⚙  SETTINGS', mx, 378);
-    ctx.font='9px monospace'; ctx.fillStyle='rgba(70,60,100,0.8)';
-    ctx.fillText('（未実装）', mx+2, 394);
+    // メニュー項目（PLAY / SETTINGS）
+    const menuItems = [
+      { label: '▶  PLAY',     y: 338 },
+      { label: '   SETTINGS', y: 378 },
+    ];
+    menuItems.forEach((item, i) => {
+      const selected = this._menuIndex === i;
+      const hovered  = (i===0 && this._titleHover==='play') ||
+                       (i===1 && this._titleHover==='settings');
+      const active = selected || hovered;
+      ctx.textAlign='left';
+      ctx.font = i===0 ? 'bold 22px serif' : '18px serif';
+      ctx.fillStyle   = active ? '#ffffff'          : (i===0 ? '#ffee88' : 'rgba(130,110,180,0.75)');
+      ctx.shadowColor = active ? '#ffffff'           : (i===0 ? '#ffaa00' : 'transparent');
+      ctx.shadowBlur  = active ? 24                  : (i===0 ? 8        : 0);
+      ctx.fillText(item.label, mx, item.y);
+      // 選択中は左に「►」インジケーター
+      if(selected){
+        ctx.font='12px monospace'; ctx.fillStyle='#ffee88';
+        ctx.shadowColor='#ffaa00'; ctx.shadowBlur=10;
+        ctx.fillText('►', mx - 16, item.y);
+        ctx.strokeStyle='rgba(255,240,120,0.5)'; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(mx,item.y+4); ctx.lineTo(mx+135,item.y+4); ctx.stroke();
+      }
+      ctx.shadowBlur=0;
+      // SETTINGSの「未実装」注記
+      if(i===1){
+        ctx.font='9px monospace'; ctx.fillStyle='rgba(70,60,100,0.8)';
+        ctx.fillText('（未実装）', mx+2, item.y+16);
+      }
+    });
 
     // 操作ガイド（小）
     ctx.textAlign='center'; ctx.font='9px monospace';
     ctx.fillStyle='rgba(130,110,180,0.55)';
     ctx.fillText('Arrow:移動  Z/Space:ショット  Shift:低速  X:ボム', W/2, H-22);
-    ctx.fillText('Space / クリックでスタート', W/2, H-8);
+    ctx.fillText('Space / Z / クリックでスタート  ↑↓ でメニュー移動', W/2, H-8);
 
     // 点滅プロンプト
     if(this.flashOn){
