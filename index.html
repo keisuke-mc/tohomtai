@@ -3,58 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>東方風弾幕シューティング - 幻想郷の戦い</title>
+  <title>東方二次創作弾幕シューティング - 幻想郷の戦い</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      background: #04000e;
+      background: #03000c;
       display: flex; justify-content: center; align-items: center;
       min-height: 100vh;
       font-family: 'MS Gothic', 'Hiragino Kaku Gothic ProN', monospace;
       overflow: hidden;
     }
-    #game-container { position: relative; width: 400px; height: 600px; }
+    #game-container { position: relative; }
     #gameCanvas {
-      display: block; width: 400px; height: 600px;
-      border: 1px solid #2a0040;
-      box-shadow: 0 0 40px rgba(180,80,255,0.4), 0 0 80px rgba(100,50,200,0.2);
+      display: block; width: 600px; height: 600px;
+      box-shadow: 0 0 60px rgba(160,60,255,0.5), 0 0 120px rgba(80,30,180,0.25);
     }
-    #side-left, #side-right {
-      position: fixed; top: 50%; transform: translateY(-50%);
-      width: 160px; color: #7777aa; font-size: 11px; line-height: 1.9;
-    }
-    #side-left { right: calc(50% + 210px); text-align: right; }
-    #side-right { left:  calc(50% + 210px); text-align: left; }
-    .side-title { color: #cc88ff; font-size: 12px; font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #330044; padding-bottom: 3px; }
-    .key-bind { color: #ffdd88; }
-    .hint { color: #ff99bb; }
   </style>
 </head>
 <body>
-<div id="side-left">
-  <div class="side-title">操作方法</div>
-  <div><span class="key-bind">Arrow</span> 移動</div>
-  <div><span class="key-bind">Z / Space</span> ショット</div>
-  <div><span class="key-bind">Shift</span> 低速移動</div>
-  <div><span class="key-bind">X</span> ボム (3回)</div>
-  <hr style="border-color:#220033;margin:5px 0">
-  <div><span class="key-bind">Space</span> スタート</div>
-  <div><span class="key-bind">R</span> リスタート</div>
-</div>
 <div id="game-container">
-  <canvas id="gameCanvas" width="400" height="600"></canvas>
-</div>
-<div id="side-right">
-  <div class="side-title">幻想郷の戦い</div>
-  <div>東方Project風</div>
-  <div>弾幕シューティング</div><br>
-  <div class="side-title">Tips</div>
-  <div class="hint">当たり判定は極小!</div>
-  <div>Shiftで確認</div><br>
-  <div class="hint">ボムで緊急回避!</div>
-  <div>弾幕を全消し</div><br>
-  <div>スコア3000で</div>
-  <div>ボス出現</div>
+  <canvas id="gameCanvas" width="600" height="600"></canvas>
 </div>
 <script>
 "use strict";
@@ -126,6 +94,14 @@ const BOSS_IMG_H = 80;
 // ============================================================
 
 // ============================================================
+//  【タイトル・HUD画像設定】
+//  TITLE_BG_SRC : タイトル画面の背景画像（正方形推奨 600×600px）
+//  HUD_IMAGE_SRC: プレイ画面右パネル下部に表示する画像（キャラ立ち絵など）
+// ============================================================
+const TITLE_BG_SRC  = null; // 例: 'title_bg.jpg'
+const HUD_IMAGE_SRC = null; // 例: 'hud_char.png'
+
+// ============================================================
 //  【背景レイヤー設定】
 //  3枚のPNG画像をそれぞれ異なる速さで縦スクロールさせます。
 //  src=null のレイヤーはスキップ → 星フィールドのみ表示。
@@ -177,9 +153,11 @@ const SE_CONFIG = {
 };
 
 // 画像を非同期でロードし、完了したら変数に格納する
-let PLAYER_IMG = null;
-let BOSS_IMG   = null;
-const _bgImgs  = [null, null, null];
+let PLAYER_IMG    = null;
+let BOSS_IMG      = null;
+let TITLE_BG_IMG  = null;
+let HUD_IMG       = null;
+const _bgImgs     = [null, null, null];
 
 function loadImages() {
   if (PLAYER_IMAGE_SRC) {
@@ -193,6 +171,18 @@ function loadImages() {
     img.onload  = () => { BOSS_IMG = img; };
     img.onerror = () => { console.warn('[画像読み込み失敗] ボス画像:', BOSS_IMAGE_SRC); };
     img.src = BOSS_IMAGE_SRC;
+  }
+  if (TITLE_BG_SRC) {
+    const img = new Image();
+    img.onload  = () => { TITLE_BG_IMG = img; };
+    img.onerror = () => { console.warn('[画像読み込み失敗] タイトル背景:', TITLE_BG_SRC); };
+    img.src = TITLE_BG_SRC;
+  }
+  if (HUD_IMAGE_SRC) {
+    const img = new Image();
+    img.onload  = () => { HUD_IMG = img; };
+    img.onerror = () => { console.warn('[画像読み込み失敗] HUD画像:', HUD_IMAGE_SRC); };
+    img.src = HUD_IMAGE_SRC;
   }
   BG_LAYERS.forEach((cfg, i) => {
     if (!cfg.src) return;
@@ -208,8 +198,11 @@ loadImages();
 //  "幻想郷の戦い" - ボムシステム & スペルカード5枚版
 // ============================================================
 
-const CANVAS_W = 400;
-const CANVAS_H = 600;
+const CANVAS_W = 400;   // ゲームプレイ領域の幅
+const CANVAS_H = 600;   // キャンバス高さ
+const TOTAL_W  = 600;   // キャンバス素子の実幅（ゲーム + 右パネル）
+const PANEL_X  = 400;   // 右パネル開始X座標
+const PANEL_W  = 200;   // 右パネル幅
 const STATE = { START: 'START', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
 
 // ===== ユーティリティ =====
@@ -599,7 +592,7 @@ class Player {
     const len = Math.hypot(dx,dy);
     if(len>0){ this.x+=(dx/len)*spd; this.y+=(dy/len)*spd; }
     this.x=clamp(this.x,this.drawRadius,CANVAS_W-this.drawRadius);
-    this.y=clamp(this.y,this.drawRadius,CANVAS_H-44);
+    this.y=clamp(this.y,this.drawRadius,CANVAS_H-this.drawRadius);
 
     // --- ショット処理（ZキーまたはSpaceキー）---
     if(this.shootCooldown>0) this.shootCooldown--;
@@ -1463,6 +1456,30 @@ class Game {
     this.bossSpawnTime=20*60;   // 20秒後（60fps × 20）にボス出現
     this.uiTick=0; this.flashOn=true; this.flashTimer=0;
     this.player=new Player();
+    // タイトル画面のマウスインタラクション
+    this._titleHover = null;
+    this.canvas.addEventListener('click', e => {
+      if(this.state !== STATE.START) return;
+      const r = this.canvas.getBoundingClientRect();
+      const sx = TOTAL_W / r.width, sy = CANVAS_H / r.height;
+      const mx = (e.clientX - r.left)*sx, my = (e.clientY - r.top)*sy;
+      // PLAYボタン領域 (大まかに中央右側)
+      if(mx >= 310 && mx <= 560 && my >= 305 && my <= 350){
+        this.reset(); this.state = STATE.PLAYING;
+      }
+    });
+    this.canvas.addEventListener('mousemove', e => {
+      const r = this.canvas.getBoundingClientRect();
+      const sx = TOTAL_W / r.width, sy = CANVAS_H / r.height;
+      const mx = (e.clientX - r.left)*sx, my = (e.clientY - r.top)*sy;
+      if(this.state === STATE.START){
+        const over = mx >= 310 && mx <= 560 && my >= 305 && my <= 350;
+        this.canvas.style.cursor = over ? 'pointer' : 'default';
+        this._titleHover = over ? 'play' : null;
+      } else {
+        this.canvas.style.cursor = 'default';
+      }
+    });
     this.loop();
   }
 
@@ -1706,8 +1723,15 @@ class Game {
   // ============================================================
   draw(){
     const ctx=this.ctx;
-    ctx.fillStyle='#050010'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
-    this.starField.draw(ctx);
+    // キャンバス全体をクリア（600×600）
+    ctx.fillStyle='#050010'; ctx.fillRect(0,0,TOTAL_W,CANVAS_H);
+    // 星フィールドはゲームエリア(0〜400)のみに描画
+    if(this.state !== STATE.START){
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0,0,CANVAS_W,CANVAS_H); ctx.clip();
+      this.starField.draw(ctx);
+      ctx.restore();
+    }
     switch(this.state){
       case STATE.START:    this.drawStart(ctx);    break;
       case STATE.PLAYING:  this.drawPlaying(ctx);  break;
@@ -1716,46 +1740,125 @@ class Game {
   }
 
   drawStart(ctx){
-    const cx=CANVAS_W/2, t=this.uiTick;
-    const glow=ctx.createRadialGradient(cx,220,0,cx,220,200);
-    glow.addColorStop(0,'rgba(120,60,200,0.35)'); glow.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.fillStyle=glow; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
-    ctx.save(); ctx.textAlign='center';
-    ctx.font='bold 13px serif'; ctx.fillStyle='#cc88ff'; ctx.shadowColor='#aa55ff'; ctx.shadowBlur=10;
-    ctx.fillText('東方風弾幕シューティング',cx,155);
-    const colors=['#ff99cc','#cc66ff','#99aaff','#66ddff','#99ffcc','#ffff88','#ff99aa'];
-    const chars='幻想郷の戦い', charW=30, startX=cx-(chars.length*charW/2)+charW/2;
-    ctx.font='bold 30px serif';
-    for(let i=0;i<chars.length;i++){
-      const wave=Math.sin(t*0.07+i*0.55)*5;
-      ctx.fillStyle=colors[i%colors.length]; ctx.shadowColor=colors[i%colors.length]; ctx.shadowBlur=14;
-      ctx.fillText(chars[i],startX+i*charW,210+wave);
+    const W=TOTAL_W, H=CANVAS_H, t=this.uiTick;
+
+    // ── 背景 ──
+    if(TITLE_BG_IMG){
+      ctx.drawImage(TITLE_BG_IMG, 0, 0, W, H);
+      ctx.fillStyle='rgba(0,0,10,0.58)'; ctx.fillRect(0,0,W,H);
+    } else {
+      // デフォルトグラデーション背景
+      const bg=ctx.createRadialGradient(W/2,H*0.45,0,W/2,H*0.45,420);
+      bg.addColorStop(0,'#0d0025'); bg.addColorStop(1,'#03000c');
+      ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+      // 星粒
+      for(let i=0;i<28;i++){
+        const sx=(Math.sin(i*127.3)*0.5+0.5)*W;
+        const sy=(Math.sin(i*311.7)*0.5+0.5)*H;
+        const sa=0.2+Math.sin(t*0.04+i)*0.15;
+        ctx.beginPath(); ctx.arc(sx,sy,0.8+Math.sin(i*73)*0.6,0,Math.PI*2);
+        ctx.fillStyle=`rgba(200,160,255,${sa})`; ctx.fill();
+      }
     }
-    ctx.font='11px monospace'; ctx.fillStyle='#8888bb'; ctx.shadowBlur=0;
-    ctx.fillText('~ Battle in Gensokyo ~',cx,234);
-    ctx.strokeStyle='rgba(150,80,255,0.4)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(cx-140,248); ctx.lineTo(cx+140,248); ctx.stroke();
-    ctx.font='13px monospace'; ctx.fillStyle='#ffdd88';
-    ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8,'0')}`,cx,268);
-    ctx.font='11px monospace'; ctx.fillStyle='#9999bb';
-    ctx.fillText('[ Z/Space ] Shot  [ Shift ] Slow  [ X ] Bomb',cx,306);
-    ctx.fillText('[ Arrow Keys ] Move',cx,325);
-    ctx.fillText('ボム3回まで使用可 | Shiftで当たり判定可視化',cx,350);
-    if(this.flashOn){
-      ctx.font='bold 16px monospace'; ctx.fillStyle='#ffffff';
-      ctx.shadowColor='#aa88ff'; ctx.shadowBlur=15;
-      ctx.fillText('Press SPACE to Start',cx,400);
+
+    ctx.save();
+
+    // ── 上部タイトル帯 ──
+    ctx.fillStyle='rgba(10,0,30,0.65)'; ctx.fillRect(0,0,W,52);
+    ctx.strokeStyle='rgba(160,80,255,0.35)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,52); ctx.lineTo(W,52); ctx.stroke();
+    ctx.textAlign='center';
+    ctx.font='bold 15px serif'; ctx.fillStyle='rgba(210,170,255,0.92)';
+    ctx.shadowColor='#9955ff'; ctx.shadowBlur=12;
+    ctx.fillText('東方二次創作弾幕シューティング', W/2, 33);
+    ctx.shadowBlur=0;
+
+    // ── 散りばめられた漢字 ──
+    const kanjis=[
+      {ch:'東', x:265, y:130, size:78, col:'#ff99cc'},
+      {ch:'方', x:185, y:240, size:78, col:'#cc88ff'},
+      {ch:'秘', x:255, y:345, size:78, col:'#88aaff'},
+      {ch:'荘', x:310, y:435, size:78, col:'#99ffdd'},
+      {ch:'郷', x:240, y:532, size:78, col:'#ffdd88'},
+    ];
+    kanjis.forEach((k,i)=>{
+      const wave=Math.sin(t*0.035+i*1.3)*4;
+      ctx.font=`bold ${k.size}px serif`;
+      ctx.fillStyle=k.col;
+      ctx.shadowColor=k.col; ctx.shadowBlur=22;
+      ctx.textAlign='center';
+      ctx.fillText(k.ch, k.x, k.y+wave);
+    });
+    ctx.shadowBlur=0;
+
+    // ── 右側メニュー ──
+    const mx=430;
+    // ハイスコア（小）
+    ctx.textAlign='left'; ctx.font='10px monospace';
+    ctx.fillStyle='rgba(180,140,255,0.6)'; ctx.shadowBlur=0;
+    ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`, mx, 290);
+
+    // PLAYボタン
+    const playHover = this._titleHover==='play';
+    ctx.font=`bold 22px serif`;
+    ctx.fillStyle = playHover ? '#ffffff' : '#ffee88';
+    ctx.shadowColor = playHover ? '#ffffff' : '#ffaa00';
+    ctx.shadowBlur  = playHover ? 28 : 10;
+    ctx.fillText('▶  PLAY', mx, 335);
+    // ホバー時アンダーライン
+    if(playHover){
+      ctx.strokeStyle='rgba(255,240,120,0.7)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(mx,340); ctx.lineTo(mx+130,340); ctx.stroke();
     }
     ctx.shadowBlur=0;
-    for(let i=0;i<10;i++){
-      const a=(Math.PI*2/10)*i+t*0.01;
-      ctx.beginPath(); ctx.arc(cx+Math.cos(a+t*0.006)*175,300+Math.sin(a*1.5)*75,1.5,0,Math.PI*2);
-      ctx.fillStyle=`rgba(180,100,255,${0.25+Math.sin(t*0.05+i)*0.2})`; ctx.fill();
+
+    // SETTINGSボタン（未実装・グレーアウト）
+    ctx.font='15px serif'; ctx.fillStyle='rgba(90,80,120,0.7)';
+    ctx.fillText('⚙  SETTINGS', mx, 378);
+    ctx.font='9px monospace'; ctx.fillStyle='rgba(70,60,100,0.8)';
+    ctx.fillText('（未実装）', mx+2, 394);
+
+    // 操作ガイド（小）
+    ctx.textAlign='center'; ctx.font='9px monospace';
+    ctx.fillStyle='rgba(130,110,180,0.55)';
+    ctx.fillText('Arrow:移動  Z/Space:ショット  Shift:低速  X:ボム', W/2, H-22);
+    ctx.fillText('Space / クリックでスタート', W/2, H-8);
+
+    // 点滅プロンプト
+    if(this.flashOn){
+      ctx.font='bold 13px monospace'; ctx.fillStyle='rgba(220,200,255,0.85)';
+      ctx.shadowColor='#aa88ff'; ctx.shadowBlur=12;
+      ctx.textAlign='right';
+      ctx.fillText('Press SPACE', W-24, H-22);
+      ctx.shadowBlur=0;
     }
+
+    // 装飾パーティクル（左半分）
+    for(let i=0;i<14;i++){
+      const a=(Math.PI*2/14)*i+t*0.007;
+      const px=155+Math.cos(a+t*0.005)*155;
+      const py=H/2+Math.sin(a*1.4)*210;
+      if(px>CANVAS_W-10) continue; // パネル側には描かない
+      ctx.beginPath(); ctx.arc(px,py,1.2,0,Math.PI*2);
+      ctx.fillStyle=`rgba(160,90,255,${0.18+Math.sin(t*0.05+i)*0.12})`; ctx.fill();
+    }
+
+    // 垂直区切り線（ゲームエリア境界）
+    const grad=ctx.createLinearGradient(CANVAS_W,0,CANVAS_W,H);
+    grad.addColorStop(0,'rgba(100,50,200,0)');
+    grad.addColorStop(0.3,'rgba(140,70,255,0.4)');
+    grad.addColorStop(0.7,'rgba(140,70,255,0.4)');
+    grad.addColorStop(1,'rgba(100,50,200,0)');
+    ctx.strokeStyle=grad; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(CANVAS_W,0); ctx.lineTo(CANVAS_W,H); ctx.stroke();
+
     ctx.restore();
   }
 
   drawPlaying(ctx){
+    // ゲームオブジェクトはゲームエリア(0〜CANVAS_W)のみに描画
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0,0,CANVAS_W,CANVAS_H); ctx.clip();
     this.particles.forEach(p=>p.draw(ctx));
     this.bombEffects.forEach(b=>b.draw(ctx));
     // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
@@ -1765,6 +1868,8 @@ class Game {
     this.enemies.forEach(e=>e.draw(ctx));
     if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
+    ctx.restore();
+    // 右パネルHUD（クリップ外に描画）
     this.drawHUD(ctx);
     // ボス出現5秒前（15秒経過〜20秒）にWARNING表示
     const warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
@@ -1772,61 +1877,122 @@ class Game {
     if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
   }
 
-  /** HUD：スコア・ボム残機（✦）・残機（♥）を描画 */
+  /** 右パネルHUD：ハイスコア・スコア・残機・ボム・パワーバー・画像 */
   drawHUD(ctx){
+    const px=PANEL_X, pw=PANEL_W, ph=CANVAS_H;
+    const pad=16, cx2=px+pw/2, lx=px+pad;
+    const t=this.uiTick;
     ctx.save();
-    ctx.fillStyle='rgba(0,0,20,0.78)'; ctx.fillRect(0,CANVAS_H-44,CANVAS_W,44);
-    // スコア
-    ctx.textAlign='left';
-    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
-    ctx.fillText('SCORE',10,CANVAS_H-28);
-    ctx.font='bold 15px monospace'; ctx.fillStyle='#ffdd88';
-    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=6;
-    ctx.fillText(this.score.toString().padStart(8,'0'),10,CANVAS_H-12);
-    // ボム残機（✦マーク）
-    ctx.textAlign='center';
-    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
-    ctx.fillText('BOMB',CANVAS_W/2,CANVAS_H-28);
+
+    // ── パネル背景 ──
+    ctx.fillStyle='rgba(4,0,18,0.93)'; ctx.fillRect(px,0,pw,ph);
+    // 左境界線
+    const lineGrad=ctx.createLinearGradient(px,0,px,ph);
+    lineGrad.addColorStop(0,'rgba(120,50,220,0)');
+    lineGrad.addColorStop(0.15,'rgba(150,70,255,0.5)');
+    lineGrad.addColorStop(0.85,'rgba(150,70,255,0.5)');
+    lineGrad.addColorStop(1,'rgba(120,50,220,0)');
+    ctx.strokeStyle=lineGrad; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(px,0); ctx.lineTo(px,ph); ctx.stroke();
+
+    ctx.textAlign='left'; ctx.shadowBlur=0;
+
+    // ── HI-SCORE ──
+    let y=32;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(160,120,255,0.6)';
+    ctx.fillText('HI-SCORE', lx, y); y+=16;
+    ctx.font='bold 13px monospace'; ctx.fillStyle='#cc88ff';
+    ctx.shadowColor='#9944ee'; ctx.shadowBlur=6;
+    ctx.fillText(this.hiScore.toString().padStart(9,'0'), lx, y);
+    ctx.shadowBlur=0;
+
+    // ── SCORE ──
+    y+=20;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(160,120,255,0.6)';
+    ctx.fillText('SCORE', lx, y); y+=18;
+    ctx.font='bold 15px monospace'; ctx.fillStyle='#ffee88';
+    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=8;
+    ctx.fillText(this.score.toString().padStart(9,'0'), lx, y);
+    ctx.shadowBlur=0;
+
+    // 区切り線
+    y+=14;
+    const divGrad=ctx.createLinearGradient(lx,y,px+pw-pad,y);
+    divGrad.addColorStop(0,'rgba(120,60,200,0)');
+    divGrad.addColorStop(0.4,'rgba(140,70,220,0.5)');
+    divGrad.addColorStop(1,'rgba(120,60,200,0)');
+    ctx.strokeStyle=divGrad; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(lx,y); ctx.lineTo(px+pw-pad,y); ctx.stroke();
+
+    // ── LIVES ──
+    y+=16;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(160,120,255,0.6)';
+    ctx.fillText('LIVES', lx, y); y+=18;
+    for(let i=0;i<this.lives;i++){
+      ctx.font='18px serif'; ctx.fillStyle='#ff4488';
+      ctx.shadowColor='#ff0044'; ctx.shadowBlur=7;
+      ctx.fillText('♥', lx+i*22, y);
+    }
+    ctx.shadowBlur=0;
+
+    // ── BOMB ──
+    y+=24;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(160,120,255,0.6)';
+    ctx.fillText('BOMB', lx, y); y+=18;
     for(let i=0;i<this.player.bombs;i++){
       ctx.font='16px serif'; ctx.fillStyle='#88aaff';
-      ctx.shadowColor='#4466ff'; ctx.shadowBlur=8;
-      ctx.fillText('✦',CANVAS_W/2-18+i*20,CANVAS_H-11);
+      ctx.shadowColor='#4466ff'; ctx.shadowBlur=7;
+      ctx.fillText('✦', lx+i*20, y);
     }
-    // 残機（♥マーク）
-    ctx.textAlign='right';
-    ctx.font='bold 10px monospace'; ctx.fillStyle='#9999cc'; ctx.shadowBlur=0;
-    ctx.fillText('LIVES',CANVAS_W-10,CANVAS_H-28);
-    for(let i=0;i<this.lives;i++){
-      ctx.font='16px serif'; ctx.fillStyle='#ff4488';
-      ctx.shadowColor='#ff0044'; ctx.shadowBlur=6;
-      ctx.fillText('♥',CANVAS_W-14-i*22,CANVAS_H-11);
-    }
-    ctx.textAlign='center'; ctx.font='9px monospace'; ctx.fillStyle='#444466'; ctx.shadowBlur=0;
-    ctx.fillText(`HI: ${this.hiScore.toString().padStart(8,'0')}`,CANVAS_W/2,20);
+    ctx.shadowBlur=0;
 
-    // ── パワーレベルバー（HUD右上）──
+    // 区切り線
+    y+=18;
+    ctx.strokeStyle=divGrad; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(lx,y); ctx.lineTo(px+pw-pad,y); ctx.stroke();
+
+    // ── POWER バー ──
+    y+=16;
     const pl=this.player.powerLevel, pm=this.player.powerMax;
-    const bx=CANVAS_W-90, by=26, bw=78, bh=7;
-    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(bx-1,by-1,bw+2,bh+2);
-    const pHue = 60 + (pl/pm)*60; // 黄→緑
-    ctx.fillStyle=`hsl(${pHue},100%,55%)`; ctx.shadowColor=`hsl(${pHue},100%,60%)`; ctx.shadowBlur=6;
-    ctx.fillRect(bx, by, bw*(pl/pm), bh);
-    ctx.shadowBlur=0; ctx.fillStyle='#aaaacc';
-    ctx.font='7px monospace'; ctx.textAlign='left';
-    ctx.fillText(`POW  ${pl}/${pm}`, bx, by-2);
+    const bw=pw-pad*2, bh=7;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(160,120,255,0.6)';
+    ctx.fillText(`POWER  ${pl} / ${pm}`, lx, y); y+=10;
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(lx,y,bw,bh);
+    const pHue=60+(pl/pm)*60;
+    ctx.fillStyle=`hsl(${pHue},100%,55%)`;
+    ctx.shadowColor=`hsl(${pHue},100%,65%)`; ctx.shadowBlur=6;
+    ctx.fillRect(lx,y,bw*(pl/pm),bh);
+    ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(140,90,200,0.35)'; ctx.lineWidth=1;
+    ctx.strokeRect(lx,y,bw,bh);
 
-    // ── ボス出現カウントダウン（ボスがいない間のみ）──
+    // ── ボス出現カウントダウン ──
     if(!this.boss && !this.bossDefeated){
-      const remaining = Math.max(0, Math.ceil((this.bossSpawnTime - this.gameTimer)/60));
-      const cx2=CANVAS_W/2, cy2=32;
-      ctx.textAlign='center';
-      if(remaining>0){
-        ctx.font='bold 11px monospace';
-        ctx.fillStyle= remaining<=5 ? '#ff4444' : '#aaaacc';
-        ctx.shadowColor= remaining<=5 ? '#ff0000' : 'transparent';
-        ctx.shadowBlur= remaining<=5 ? 10 : 0;
-        ctx.fillText(`BOSS  ${remaining}s`, cx2, cy2);
-      }
+      const rem=Math.max(0,Math.ceil((this.bossSpawnTime-this.gameTimer)/60));
+      y+=24;
+      ctx.textAlign='center'; ctx.font='bold 10px monospace';
+      ctx.fillStyle= rem<=5 ? '#ff4444' : 'rgba(160,120,255,0.55)';
+      ctx.shadowColor= rem<=5 ? '#ff0000' : 'transparent';
+      ctx.shadowBlur= rem<=5 ? 10 : 0;
+      ctx.fillText(`BOSS  ${rem}s`, cx2, y);
+      ctx.shadowBlur=0;
+    }
+
+    // ── 下部画像（キャラクター立ち絵など） ──
+    const imgSize=pw-16, imgX=px+8, imgY=ph-imgSize-8;
+    if(HUD_IMG){
+      ctx.drawImage(HUD_IMG, imgX, imgY, imgSize, imgSize);
+      ctx.strokeStyle='rgba(150,80,255,0.45)'; ctx.lineWidth=1;
+      ctx.strokeRect(imgX,imgY,imgSize,imgSize);
+    } else {
+      // プレースホルダー
+      ctx.fillStyle='rgba(18,6,40,0.6)'; ctx.fillRect(imgX,imgY,imgSize,imgSize);
+      ctx.strokeStyle='rgba(80,40,120,0.35)'; ctx.lineWidth=1;
+      ctx.strokeRect(imgX,imgY,imgSize,imgSize);
+      ctx.textAlign='center'; ctx.font='9px monospace';
+      ctx.fillStyle='rgba(80,60,120,0.7)';
+      ctx.fillText('hud_image.png', imgX+imgSize/2, imgY+imgSize/2-5);
+      ctx.fillText('を配置できます', imgX+imgSize/2, imgY+imgSize/2+10);
     }
 
     ctx.restore();
@@ -1854,26 +2020,28 @@ class Game {
   }
 
   drawGameOver(ctx){
-    const cx=CANVAS_W/2, t=this.uiTick;
-    ctx.fillStyle='rgba(0,0,12,0.72)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    const cx=TOTAL_W/2, t=this.uiTick;
+    ctx.fillStyle='rgba(0,0,12,0.80)'; ctx.fillRect(0,0,TOTAL_W,CANVAS_H);
     ctx.save(); ctx.textAlign='center';
-    ctx.font='bold 42px serif'; ctx.fillStyle='#ff3333';
-    ctx.shadowColor='#ff0000'; ctx.shadowBlur=26;
-    ctx.fillText('GAME OVER',cx+Math.sin(t*0.12)*2,215);
-    ctx.font='bold 15px monospace'; ctx.fillStyle='#ffffff'; ctx.shadowColor='#fff'; ctx.shadowBlur=8;
-    ctx.fillText('FINAL SCORE',cx,272);
-    ctx.font='bold 28px monospace'; ctx.fillStyle='#ffdd88'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=16;
-    ctx.fillText(this.score.toString().padStart(8,'0'),cx,310);
+    ctx.font='bold 48px serif'; ctx.fillStyle='#ff3333';
+    ctx.shadowColor='#ff0000'; ctx.shadowBlur=30;
+    ctx.fillText('GAME OVER',cx+Math.sin(t*0.12)*2,220);
+    ctx.font='bold 14px monospace'; ctx.fillStyle='#aaaacc'; ctx.shadowColor='#fff'; ctx.shadowBlur=6;
+    ctx.fillText('FINAL SCORE',cx,278);
+    ctx.font='bold 32px monospace'; ctx.fillStyle='#ffee88'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=18;
+    ctx.fillText(this.score.toString().padStart(9,'0'),cx,318);
+    ctx.shadowBlur=0;
     if(this.score>=this.hiScore&&this.score>0){
-      ctx.font='bold 13px monospace'; ctx.fillStyle='#ff88ff'; ctx.shadowColor='#ff44ff'; ctx.shadowBlur=12;
-      ctx.fillText('NEW HI-SCORE!',cx,342);
+      ctx.font='bold 14px monospace'; ctx.fillStyle='#ff88ff'; ctx.shadowColor='#ff44ff'; ctx.shadowBlur=14;
+      ctx.fillText('✦  NEW HI-SCORE  ✦',cx,352);
     } else {
-      ctx.font='12px monospace'; ctx.fillStyle='#666688'; ctx.shadowBlur=0;
-      ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(8,'0')}`,cx,342);
+      ctx.font='12px monospace'; ctx.fillStyle='#555577'; ctx.shadowBlur=0;
+      ctx.fillText(`Hi-Score: ${this.hiScore.toString().padStart(9,'0')}`,cx,352);
     }
+    ctx.shadowBlur=0;
     if(Math.floor(t/24)%2===0){
       ctx.font='bold 15px monospace'; ctx.fillStyle='#ccccff'; ctx.shadowColor='#8888ff'; ctx.shadowBlur=10;
-      ctx.fillText('Press R to Restart',cx,400);
+      ctx.fillText('Press R to Restart',cx,410);
     }
     ctx.restore();
   }
