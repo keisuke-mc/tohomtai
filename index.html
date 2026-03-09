@@ -7,15 +7,15 @@
 
   <!-- OGP -->
   <!-- OGP画像を設定する場合: ogp.png などをリポジトリに置き下記のパスを編集してください -->
-  <meta property="og:image" content="https://keisuke-mc.github.iotohomtai/ogp.png">
+  <!-- <meta property="og:image" content="https://あなたのユーザー名.github.io/リポジトリ名/ogp.png"> -->
   <meta property="og:title"       content="東方二次創作弾幕シューティング 東方秘荘郷">
-  <meta property="og:description" content="東方二次創作弾幕シューティングゲームです。">
+  <meta property="og:description" content="東方風の弾幕シューティングゲームです。スペルカード5枚のボスに挑め！">
   <meta property="og:type"        content="website">
   <meta property="og:locale"      content="ja_JP">
   <meta name="twitter:card"       content="summary_large_image">
   <meta name="twitter:title"      content="東方二次創作弾幕シューティング 東方秘荘郷">
-  <meta name="twitter:description" content="東方二次創作弾幕シューティングゲームです。">
-  <meta name="twitter:image"   content="https://keisuke-mc.github.io/tohomtai/ogp.png">
+  <meta name="twitter:description" content="東方風の弾幕シューティングゲームです。スペルカード5枚のボスに挑め！">
+  <!-- <meta name="twitter:image"   content="https://あなたのユーザー名.github.io/リポジトリ名/ogp.png"> -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -147,8 +147,8 @@ const BG_LAYERS = [
 //  volume: 音量（0.0〜1.0）。loop: true でループ再生。
 // ============================================================
 const BGM_CONFIG = {
-  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '神々が恋した幻想郷' }, // 道中BGM
-  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: 'UN.オーエンは彼女なのか？〜アレンジ〜' }, // ボス戦BGM
+  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '曲名をここに入力' }, // 道中BGM
+  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: '曲名をここに入力' }, // ボス戦BGM
 };
 
 const SE_CONFIG = {
@@ -1471,7 +1471,8 @@ class Game {
     window.addEventListener('click',   function(){ if(window._SE) window._SE.resume(); });
     window.addEventListener('pointerdown', function(){ if(window._SE) window._SE.resume(); });
     this.state=STATE.START;
-    this.score=0; this.lives=3; this.hiScore=0;
+    this.score=0; this.lives=3;
+    this.hiScore = parseInt(localStorage.getItem('touhou_hiscore') || '0', 10);
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.bossDefeated=false;
     this.powerItems=[]; // Pアイテムプール
@@ -1736,7 +1737,7 @@ class Game {
           if(player.hit()){
             this.lives--;
             this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
-            if(this.lives<=0){ if(this.score>this.hiScore) this.hiScore=this.score; this.state=STATE.GAMEOVER; }
+            if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore', this.hiScore); } this.state=STATE.GAMEOVER; }
             break;
           }
         }
