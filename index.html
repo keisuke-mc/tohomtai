@@ -114,6 +114,26 @@ const TITLE_BG_SRC  = null; // 例: 'title_bg.jpg'
 const HUD_IMAGE_SRC = null; // 例: 'hud_char.png'
 
 // ============================================================
+//  【道中敵 画像設定】
+//  各タイプの道中敵にアニメーションWebP（またはPNG）を割り当てられます。
+//
+//  キー名  : 'normal' | 'spread' | 'fast' | 'fortress'
+//  src     : 画像パス。null にするとデフォルトのベクター描画を使用。
+//  width   : 描画幅（px）
+//  height  : 描画高さ（px）
+//
+//  例：
+//    normal:   { src: 'enemies/fairy.webp',   width: 40, height: 40 },
+//    fortress: { src: 'enemies/fortress.webp', width: 50, height: 50 },
+// ============================================================
+const ENEMY_IMAGES = {
+  normal:   { src: null, width: 38, height: 38 },
+  spread:   { src: null, width: 40, height: 40 },
+  fast:     { src: null, width: 32, height: 32 },
+  fortress: { src: null, width: 50, height: 50 },
+};
+
+// ============================================================
 //  【背景レイヤー設定】
 //  3枚のPNG画像をそれぞれ異なる速さで縦スクロールさせます。
 //  src=null のレイヤーはスキップ → 星フィールドのみ表示。
@@ -172,6 +192,7 @@ let BOSS_IMG      = null;
 let TITLE_BG_IMG  = null;
 let HUD_IMG       = null;
 const _bgImgs     = [null, null, null];
+const _enemyImgs  = {};  // type -> HTMLImageElement
 
 function loadImages() {
   if (PLAYER_IMAGE_SRC) {
@@ -203,6 +224,14 @@ function loadImages() {
     const img = new Image();
     img.onload  = () => { _bgImgs[i] = img; };
     img.onerror = () => { console.warn('[BG読み込み失敗] レイヤー'+(i+1)+':', cfg.src); };
+    img.src = cfg.src;
+  });
+  // 道中敵画像ロード（アニメーションWebP対応）
+  Object.entries(ENEMY_IMAGES).forEach(([type, cfg]) => {
+    if (!cfg || !cfg.src) return;
+    const img = new Image();
+    img.onload  = () => { _enemyImgs[type] = img; };
+    img.onerror = () => { console.warn('[敵画像読み込み失敗] type=' + type + ':', cfg.src); };
     img.src = cfg.src;
   });
 }
@@ -933,6 +962,7 @@ class Enemy {
     this.wobbleOffset=randFloat(0,Math.PI*2);
     this.wobbleSpeed=randFloat(0.02,0.05);
     this.wobbleAmp=randFloat(1.0,3.0);
+    this._flashTimer=0;  // 被弾フラッシュ用
   }
 
   /** 【弾幕①】自機狙い1発 - atan2でプレイヤー方向を計算 */
@@ -970,6 +1000,7 @@ class Enemy {
 
   update() {
     this.animTick++;
+    if (this._flashTimer > 0) this._flashTimer--;
     this.x+=Math.sin(this.animTick*this.wobbleSpeed+this.wobbleOffset)*this.wobbleAmp;
     this.y+=this.speed;
     if(this.shootCooldown>0){ this.shootCooldown--; }
@@ -989,31 +1020,55 @@ class Enemy {
 
   damage(dmg) {
     this.hp-=dmg;
+    this._flashTimer=6;  // 被弾フラッシュ（6フレーム）
     if(this.hp<=0){ this.active=false; return true; } return false;
   }
 
   draw(ctx) {
-    ctx.save(); ctx.translate(this.x,this.y);
-    const t=this.animTick, hp=this.hp/this.maxHp;
-    const sides=this.type==='fortress'?4:6;
-    const rot=this.type==='fortress'?Math.PI/4+t*0.01:-Math.PI/6+t*0.03;
-    ctx.beginPath();
-    for(let i=0;i<sides;i++){
-      const a=(Math.PI*2/sides)*i+rot;
-      if(i===0) ctx.moveTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
-      else ctx.lineTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
+    const img = _enemyImgs[this.type];
+    const cfg = ENEMY_IMAGES[this.type];
+
+    if (img && cfg) {
+      // ── 画像モード（アニメーションWebP / PNG）──
+      const hp = this.hp / this.maxHp;
+      const w  = cfg.width, h = cfg.height;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      // 被ダメージ時に赤くフラッシュ
+      if (this._flashTimer > 0) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 0.55 + 0.45 * (this._flashTimer / 6);
+        ctx.filter = 'brightness(2) saturate(0) sepia(1) hue-rotate(-30deg)';
+      }
+      ctx.drawImage(img, -w / 2, -h / 2, w, h);
+      ctx.filter = 'none';
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+    } else {
+      // ── ベクターモード（デフォルト）──
+      ctx.save(); ctx.translate(this.x,this.y);
+      const t=this.animTick, hp=this.hp/this.maxHp;
+      const sides=this.type==='fortress'?4:6;
+      const rot=this.type==='fortress'?Math.PI/4+t*0.01:-Math.PI/6+t*0.03;
+      ctx.beginPath();
+      for(let i=0;i<sides;i++){
+        const a=(Math.PI*2/sides)*i+rot;
+        if(i===0) ctx.moveTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
+        else ctx.lineTo(Math.cos(a)*this.radius,Math.sin(a)*this.radius);
+      }
+      ctx.closePath();
+      ctx.fillStyle=`hsl(${this.hue},${70+30*hp}%,${25+20*hp}%)`;
+      ctx.shadowColor=`hsl(${this.hue},100%,60%)`; ctx.shadowBlur=12; ctx.fill();
+      ctx.strokeStyle=`hsla(${this.hue},100%,80%,0.8)`; ctx.lineWidth=1.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2);
+      ctx.fillStyle=`hsl(${this.hue+60},100%,80%)`; ctx.shadowColor=`hsl(${this.hue+60},100%,60%)`; ctx.shadowBlur=8; ctx.fill();
+      if(this.type==='fortress'){
+        ctx.beginPath(); ctx.arc(0,0,this.radius+5,0,Math.PI*2);
+        ctx.strokeStyle=`hsla(${this.hue},90%,60%,0.4)`; ctx.lineWidth=2; ctx.shadowBlur=0; ctx.stroke();
+      }
+      ctx.restore();
     }
-    ctx.closePath();
-    ctx.fillStyle=`hsl(${this.hue},${70+30*hp}%,${25+20*hp}%)`;
-    ctx.shadowColor=`hsl(${this.hue},100%,60%)`; ctx.shadowBlur=12; ctx.fill();
-    ctx.strokeStyle=`hsla(${this.hue},100%,80%,0.8)`; ctx.lineWidth=1.5; ctx.stroke();
-    ctx.beginPath(); ctx.arc(0,0,5,0,Math.PI*2);
-    ctx.fillStyle=`hsl(${this.hue+60},100%,80%)`; ctx.shadowColor=`hsl(${this.hue+60},100%,60%)`; ctx.shadowBlur=8; ctx.fill();
-    if(this.type==='fortress'){
-      ctx.beginPath(); ctx.arc(0,0,this.radius+5,0,Math.PI*2);
-      ctx.strokeStyle=`hsla(${this.hue},90%,60%,0.4)`; ctx.lineWidth=2; ctx.shadowBlur=0; ctx.stroke();
-    }
-    ctx.restore();
     // ★ 弾はゲーム側のプールから描画するのでここでは描画しない
   }
 }
