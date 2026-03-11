@@ -2224,7 +2224,7 @@ class Game {
             this.lives--;
             this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
             // 被弾前のパワー1割分のPアイテムをドロップ
-            const dropCount = Math.floor((player._hitDropPower || 0) * 0.1);
+            const dropCount = Math.floor((player._hitDropPower || 0) * 0.9);
             for(let _d=0;_d<dropCount;_d++){
               this.powerItems.push(new PowerItem(
                 player.x + randFloat(-40,40),
@@ -2313,7 +2313,7 @@ class Game {
           if(player.hit()){
             this.lives--;
             this.spawnExplosion(eb.x,eb.y,'#88ccff',20);
-            const dropCount=Math.floor((player._hitDropPower||0)*0.1);
+            const dropCount=Math.floor((player._hitDropPower||0)*0.9);
             for(let _d=0;_d<dropCount;_d++) this.powerItems.push(new PowerItem(player.x+randFloat(-40,40),player.y+randFloat(-20,20)));
             if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore',this.hiScore); } this.state=STATE.GAMEOVER; }
             break;
@@ -2473,28 +2473,40 @@ class Game {
   }
 
   drawPlaying(ctx){
-    // ゲームオブジェクトはゲームエリア(0〜CANVAS_W)のみに描画
     ctx.save();
     ctx.beginPath(); ctx.rect(0,0,CANVAS_W,CANVAS_H); ctx.clip();
     this.particles.forEach(p=>p.draw(ctx));
     this.bombEffects.forEach(b=>b.draw(ctx));
-    // ★ 共通プールの雑魚敵弾を描画（敵が消えても弾は残る）
+    // 共通弾プール（雑魚・SideFlier）
     this.enemyBullets.forEach(b=>b.draw(ctx));
+    // アイテム
     this.powerItems.forEach(item=>item.draw(ctx));
     this.bombItems.forEach(item=>item.draw(ctx));
+    if(this.lifeItems) this.lifeItems.forEach(item=>item.draw(ctx));
+    // 敵
     this.enemies.forEach(e=>e.draw(ctx));
+    if(this.sideFliers) this.sideFliers.forEach(sf=>sf.draw(ctx));
+    // 中ボス（本ボスより手前）
+    if(this.midBoss) this.midBoss.draw(ctx);
+    // 本ボス
     if(this.boss) this.boss.draw(ctx);
     this.player.draw(ctx,this.input);
-    // ── 曲名表示（ゲームエリア内に描画）──
     if (this._trackTitle) this.drawTrackTitle(ctx);
     ctx.restore();
-    // 右パネルHUD（クリップ外に描画）
+
     this.drawHUD(ctx);
-    // ボス出現5秒前（15秒経過〜20秒）にWARNING表示
-    const warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
+
+    // WARNING（面別）
+    let warn = false;
+    if(this.stage===1){
+      warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
+    } else if(this.stage===2 && this.midBossDefeated && !this.boss && !this.bossDefeated){
+      const timeLeft = (this.midBossDefeatedAt + this.bossSpawnAfterMid) - this.gameTimer;
+      warn = timeLeft>0 && timeLeft<5*60;
+    }
     if(warn) this.drawWarning(ctx);
-    if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
-    // 面タイトル表示（ゲーム開始直後）
+    // クリア表示（2面のみ）
+    if(this.stage===2 && this.bossDefeated && !this.boss) this.drawClear(ctx);
     if(this._stageTimer < 230) this.drawStageTitle(ctx);
   }
 
