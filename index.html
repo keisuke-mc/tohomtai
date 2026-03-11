@@ -180,6 +180,13 @@ const BG_LAYERS = [
   { src: 'bg/layer3.png', speed: 2.0,  alpha: 0.70 },
 ];
 
+// 2面用背景（BG_LAYERS と同じ形式で設定）
+const BG_LAYERS_2 = [
+  { src: null, speed: 0.5,  alpha: 1.0  },
+  { src: null, speed: 1.2,  alpha: 0.85 },
+  { src: null, speed: 2.4,  alpha: 0.70 },
+];
+
 // ============================================================
 //  【効果音設定】
 //  soundeffects フォルダに音声ファイルを入れて設定してください。
@@ -194,8 +201,10 @@ const BG_LAYERS = [
 //  volume: 音量（0.0〜1.0）。loop: true でループ再生。
 // ============================================================
 const BGM_CONFIG = {
-  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '曲名をここに入力' }, // 道中BGM
-  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: '曲名をここに入力' }, // ボス戦BGM
+  stage:  { src: 'bgm/stage.mp3',  volume: 0.5, loop: true, title: '曲名をここに入力' }, // 1面道中BGM
+  boss:   { src: 'bgm/boss.mp3',   volume: 0.6, loop: true, title: '曲名をここに入力' }, // 1面ボスBGM
+  stage2: { src: 'bgm/stage2.mp3', volume: 0.5, loop: true, title: '曲名をここに入力' }, // 2面道中BGM
+  boss2:  { src: 'bgm/boss2.mp3',  volume: 0.6, loop: true, title: '曲名をここに入力' }, // 2面ボスBGM
 };
 
 const SE_CONFIG = {
@@ -220,6 +229,7 @@ const _bossSpellImgs = {};  // spellName -> HTMLImageElement
 let TITLE_BG_IMG  = null;
 let HUD_IMG       = null;
 const _bgImgs     = [null, null, null];
+const _bgImgs2    = [null, null, null]; // 2面背景
 const _enemyImgs  = {};  // type -> HTMLImageElement
 
 function loadImages() {
@@ -254,6 +264,13 @@ function loadImages() {
     img.onerror = () => { console.warn('[BG読み込み失敗] レイヤー'+(i+1)+':', cfg.src); };
     img.src = cfg.src;
   });
+  BG_LAYERS_2.forEach((cfg, i) => {
+    if (!cfg.src) return;
+    const img = new Image();
+    img.onload  = () => { _bgImgs2[i] = img; };
+    img.onerror = () => { console.warn('[BG2読み込み失敗] レイヤー'+(i+1)+':', cfg.src); };
+    img.src = cfg.src;
+  });
   // ボス スペルカード別 立ち絵ロード
   Object.entries(BOSS_SPELL_IMAGES).forEach(([name, cfg]) => {
     if (!cfg || !cfg.src) return;
@@ -282,7 +299,7 @@ const CANVAS_H = 600;   // キャンバス高さ
 const TOTAL_W  = 600;   // キャンバス素子の実幅（ゲーム + 右パネル）
 const PANEL_X  = 400;   // 右パネル開始X座標
 const PANEL_W  = 200;   // 右パネル幅
-const STATE = { START: 'START', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER' };
+const STATE = { START: 'START', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER', STAGE_CLEAR: 'STAGE_CLEAR' };
 
 // ===== ユーティリティ =====
 function dist(x1,y1,x2,y2){ return Math.hypot(x2-x1,y2-y1); }
@@ -719,7 +736,9 @@ class Player {
     this.x              = CANVAS_W / 2;
     this.y              = this.respawnStartY;
     this.bullets        = [];
-    this.bombs          = 3; // 被弾時にボムを3にリセット
+    this.bombs          = 3;       // 被弾時にボムを3にリセット
+    this._hitDropPower  = this.powerLevel; // ドロップするパワー量を記録
+    this.powerLevel     = 0;       // パワーリセット
     return true;
   }
 
@@ -955,6 +974,32 @@ class BombItem {
 
 
 // ============================================================
+//  LifeItem - 残機アップアイテム（緑の正方形「命」）
+// ============================================================
+class LifeItem {
+  constructor(x, y) {
+    this.x=x; this.y=y;
+    this.vy=1.5; this.active=true; this.animTick=0;
+    this.radius=9; this.size=14;
+  }
+  update() { this.y+=this.vy; this.animTick++; if(this.y>CANVAS_H+20) this.active=false; }
+  draw(ctx) {
+    const pulse=0.85+Math.sin(this.animTick*0.15)*0.15;
+    ctx.save(); ctx.globalAlpha=pulse; ctx.translate(this.x,this.y);
+    const s=this.size;
+    ctx.shadowColor='#00ff88'; ctx.shadowBlur=14;
+    ctx.fillStyle='#007744'; ctx.fillRect(-s/2,-s/2,s,s);
+    ctx.strokeStyle='#88ffcc'; ctx.lineWidth=1.5; ctx.shadowBlur=0;
+    ctx.strokeRect(-s/2,-s/2,s,s);
+    ctx.fillStyle='#ffffff'; ctx.font=`bold ${s-4}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.shadowColor='#aaffcc'; ctx.shadowBlur=6;
+    ctx.fillText('命',0,1);
+    ctx.restore();
+  }
+}
+
+// ============================================================
 //  Enemy - 雑魚敵（強化版）
 //  4タイプの異なる弾幕パターンと高HPを持つ
 //  ★ 弾はゲーム共通プール(bulletPool)に発射する
@@ -989,6 +1034,18 @@ class Enemy {
         this.radius=22; this.hp=this.maxHp=130;
         this.speed=randFloat(0.3,0.7); this.shootInterval=randInt(75,95);
         this.score=400; this.hue=0; break;
+      case 'kamikaze': // 特攻タイプ：弾なし・高速・直線
+        this.radius=10; this.hp=this.maxHp=15;
+        this.speed=0; // vx/vy で直接管理
+        const baseAngle = Math.PI/2 + randFloat(-0.5,0.5);
+        const kSpeed = randFloat(3.5,5.5);
+        this.vx = Math.cos(baseAngle)*kSpeed;
+        this.vy = Math.sin(baseAngle)*kSpeed;
+        this.shootInterval=9999; this.score=50; this.hue=30; break;
+      case 'column': // 縦列タイプ：自機狙い弾
+        this.radius=14; this.hp=this.maxHp=40;
+        this.speed=randFloat(1.0,1.6); this.shootInterval=randInt(70,100);
+        this.score=120; this.hue=160; break;
       default: // normal：自機狙い+時々高速弾
         this.radius=16; this.hp=this.maxHp=50;
         this.speed=randFloat(0.9,1.8); this.shootInterval=randInt(62,98);
@@ -1037,6 +1094,11 @@ class Enemy {
   update() {
     this.animTick++;
     if (this._flashTimer > 0) this._flashTimer--;
+    if (this.type==='kamikaze') {
+      this.x+=this.vx; this.y+=this.vy;
+      if(this.y>CANVAS_H+20||this.x<-30||this.x>CANVAS_W+30) this.active=false;
+      return;
+    }
     this.x+=Math.sin(this.animTick*this.wobbleSpeed+this.wobbleOffset)*this.wobbleAmp;
     this.y+=this.speed;
     if(this.shootCooldown>0){ this.shootCooldown--; }
@@ -1044,9 +1106,10 @@ class Enemy {
       this.shootCooldown=this.shootInterval; this.shootCount++;
       window._SE && window._SE.play('enemyShoot');
       switch(this.type){
-        case 'spread': this.shoot5Way(); if(this.shootCount%3===0) this.shootAimed(0.9); break;
-        case 'fast':   this.shootFast3Way(); break;
-        case 'fortress': this.shoot8Way(); if(this.shootCount%2===0) this.shootAimed(1.2); break;
+        case 'spread':  this.shoot5Way(); if(this.shootCount%3===0) this.shootAimed(0.9); break;
+        case 'fast':    this.shootFast3Way(); break;
+        case 'fortress':this.shoot8Way(); if(this.shootCount%2===0) this.shootAimed(1.2); break;
+        case 'column':  this.shootAimed(0.9); break;
         default: this.shootAimed(); if(this.shootCount%4===0) this.shootAimed(1.4); break;
       }
     }
@@ -1109,6 +1172,196 @@ class Enemy {
   }
 }
 
+
+// ============================================================
+//  SideFlier - 2面：左右から侵入・停止・弾幕・退場する敵
+// ============================================================
+class SideFlier {
+  /**
+   * @param {'left'|'right'} side  侵入方向
+   * @param {Player} player
+   * @param {EnemyBullet[]} bulletPool
+   */
+  constructor(side, player, bulletPool) {
+    this.player = player;
+    this.bulletPool = bulletPool;
+    this.side = side;
+    this.active = true;
+    this.animTick = 0;
+    this.shootCount = 0;
+    this.radius = 15;
+    this.hp = this.maxHp = 80;
+    this.score = 300;
+    this.hue = 170;
+    this._flashTimer = 0;
+    // 侵入方向に応じた初期位置・停止位置
+    const stopX = side==='left' ? 70 : CANVAS_W-70;
+    this.x = side==='left' ? -30 : CANVAS_W+30;
+    this.y = randFloat(80, 140);
+    this.stopX = stopX;
+    this.stopY = this.y;
+    // フェーズ: 0=侵入中, 1=停止・弾幕, 2=退場中
+    this.phase = 0;
+    this.stayTimer = 0;
+    this.stayDuration = 240; // 4秒
+    this.speed = 4;
+    this.shootInterval = 50;
+    this.shootCooldown = randInt(20,50);
+  }
+  damage(dmg) {
+    this.hp -= dmg;
+    this._flashTimer = 6;
+    if(this.hp<=0){ this.active=false; return true; } return false;
+  }
+  update() {
+    this.animTick++;
+    if(this._flashTimer>0) this._flashTimer--;
+    if(this.phase===0) {
+      // 侵入
+      const dx = this.stopX - this.x;
+      if(Math.abs(dx)<this.speed){ this.x=this.stopX; this.phase=1; }
+      else this.x += Math.sign(dx)*this.speed;
+    } else if(this.phase===1) {
+      // 停止・弾幕
+      this.stayTimer++;
+      if(this.shootCooldown>0) this.shootCooldown--;
+      else {
+        this.shootCooldown = this.shootInterval; this.shootCount++;
+        window._SE && window._SE.play('enemyShoot');
+        // 5-Way 扇弾（下方向中心）
+        const base = Math.PI/2 + (this.side==='left'?0.2:-0.2);
+        for(let i=-2;i<=2;i++){
+          const a=base+i*0.22;
+          this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(a)*3.8,Math.sin(a)*3.8,'#44ffcc',6));
+        }
+        if(this.shootCount%3===0){
+          const a=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+          this.bulletPool.push(new EnemyBullet(this.x,this.y,Math.cos(a)*5,Math.sin(a)*5,'#ffffff',5));
+        }
+      }
+      if(this.stayTimer>=this.stayDuration) this.phase=2;
+    } else {
+      // 退場
+      this.x += this.side==='left' ? -this.speed : this.speed;
+      if(this.x<-40||this.x>CANVAS_W+40) this.active=false;
+    }
+  }
+  draw(ctx) {
+    ctx.save(); ctx.translate(this.x,this.y);
+    if(this._flashTimer>0){ ctx.filter='brightness(3) saturate(0)'; }
+    const hp=this.hp/this.maxHp;
+    const t=this.animTick;
+    // 菱形ボディ
+    ctx.beginPath();
+    ctx.moveTo(0,-this.radius); ctx.lineTo(this.radius*0.7,0);
+    ctx.lineTo(0,this.radius);  ctx.lineTo(-this.radius*0.7,0);
+    ctx.closePath();
+    ctx.fillStyle=`hsl(${this.hue},80%,${25+20*hp}%)`;
+    ctx.shadowColor=`hsl(${this.hue},100%,60%)`; ctx.shadowBlur=14;
+    ctx.fill();
+    ctx.strokeStyle=`hsla(${this.hue},100%,80%,0.8)`; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.filter='none';
+    ctx.restore();
+  }
+}
+
+// ============================================================
+//  MidBoss - 2面中ボス（スペルカードなし）
+// ============================================================
+class MidBoss {
+  constructor(player, game) {
+    this.player = player;
+    this.game = game;
+    this.x = CANVAS_W/2; this.y = -60; this.targetY = 110;
+    this.radius = 28;
+    this.animTick = 0;
+    this.moveTimer = 0;
+    this.active = true;
+    this.entering = true;
+    this.hp = this.maxHp = 7000;
+    this.score = 4000;
+    this.bullets = [];
+    this.shootCooldown = 90;
+    this.patternTimer = 0;
+  }
+  get hue(){ return 140; }
+
+  _shoot(n, speed, col, offset=0){
+    for(let i=0;i<n;i++){
+      const a=(Math.PI*2/n)*i+offset;
+      this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*speed,Math.sin(a)*speed,col,6,'boss'));
+    }
+  }
+  _shootAimed(spd, col){
+    const a=Math.atan2(this.player.y-this.y,this.player.x-this.x);
+    this.bullets.push(new EnemyBullet(this.x,this.y,Math.cos(a)*spd,Math.sin(a)*spd,col,6,'boss'));
+  }
+
+  update() {
+    this.animTick++; this.moveTimer++;
+    // 入場
+    if(this.entering){
+      this.y += (this.targetY - this.y)*0.07;
+      if(Math.abs(this.y-this.targetY)<1){ this.y=this.targetY; this.entering=false; }
+      return;
+    }
+    // ゆらゆら移動
+    this.x = CANVAS_W/2 + Math.sin(this.moveTimer*0.014)*130;
+    // 弾幕
+    const t = this.patternTimer++;
+    if(t%70===0) { window._SE&&window._SE.play('bossShoot'); this._shoot(12,3.2,'#88ffaa',t*0.03); }
+    if(t%90===0) { window._SE&&window._SE.play('bossShoot'); this._shoot(8,4.0,'#ffdd44',t*0.05); }
+    if(t%50===0) { this._shootAimed(5.0,'#ff8844'); }
+    // 弾更新
+    this.bullets.forEach(b=>b.update());
+    for(let i=this.bullets.length-1;i>=0;i--)
+      if(!this.bullets[i].active) this.bullets.splice(i,1);
+  }
+
+  damage(dmg){
+    this.hp-=dmg;
+    if(this.hp<=0){ this.hp=0; this._defeat(); return true; } return false;
+  }
+
+  _defeat(){
+    this.active=false;
+    if(!this.game) return;
+    // ドロップ: P×3〜4, ボム×1, 残機×1
+    const pc=randInt(3,5);
+    for(let i=0;i<pc;i++) this.game.powerItems.push(new PowerItem(this.x+randFloat(-40,40),this.y+randFloat(0,30)));
+    this.game.bombItems.push(new BombItem(this.x+randFloat(-20,20),this.y+randFloat(0,20)));
+    this.game.lifeItems.push(new LifeItem(this.x+randFloat(-20,20),this.y+randFloat(0,30)));
+  }
+
+  draw(ctx){
+    ctx.save(); ctx.translate(this.x,this.y);
+    const t=this.animTick, hp=this.hp/this.maxHp;
+    // リング
+    for(let r=0;r<2;r++){
+      const rR=this.radius+12+r*12;
+      ctx.beginPath(); ctx.arc(0,0,rR,0,Math.PI*2);
+      ctx.strokeStyle=`hsla(140,100%,60%,${0.4-r*0.1})`;
+      ctx.lineWidth=2; ctx.shadowColor='#44ff88'; ctx.shadowBlur=12; ctx.stroke();
+    }
+    // 本体
+    const grad=ctx.createRadialGradient(0,0,0,0,0,this.radius);
+    grad.addColorStop(0,'#aaffcc');
+    grad.addColorStop(0.5,`hsl(140,80%,40%)`);
+    grad.addColorStop(1,`hsla(140,70%,15%,0.9)`);
+    ctx.beginPath(); ctx.arc(0,0,this.radius,0,Math.PI*2);
+    ctx.fillStyle=grad; ctx.shadowColor='#44ff88'; ctx.shadowBlur=20; ctx.fill();
+    ctx.restore();
+    // HPバー
+    const bW=CANVAS_W-40, bH=8, bX=20, bY=8;
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(bX-1,bY-1,bW+2,bH+2);
+    ctx.fillStyle=`hsl(140,100%,50%)`; ctx.shadowColor='#44ff88'; ctx.shadowBlur=8;
+    ctx.fillRect(bX,bY,bW*(this.hp/this.maxHp),bH);
+    ctx.shadowBlur=0;
+    ctx.font='bold 8px monospace'; ctx.fillStyle='rgba(180,255,200,0.7)';
+    ctx.textAlign='left'; ctx.fillText('MID BOSS',bX,bY-2);
+    this.bullets.forEach(b=>b.draw(ctx));
+  }
+}
 
 // ============================================================
 //  Boss - ボス敵
@@ -1516,17 +1769,21 @@ class ParallaxBackground {
       });
     }
   }
-  update(){
-    BG_LAYERS.forEach((cfg,i)=>{
-      const h=(_bgImgs[i]&&_bgImgs[i].naturalHeight)||CANVAS_H;
+  update(stage=1){
+    const layers = stage===2 ? BG_LAYERS_2 : BG_LAYERS;
+    const imgs   = stage===2 ? _bgImgs2    : _bgImgs;
+    layers.forEach((cfg,i)=>{
+      const h=(imgs[i]&&imgs[i].naturalHeight)||CANVAS_H;
       this.offsets[i]=(this.offsets[i]+cfg.speed)%h;
     });
     this.stars.forEach(s=>{ s.y+=s.speed; if(s.y>CANVAS_H+2){s.y=-2;s.x=randFloat(0,CANVAS_W);} });
   }
-  draw(ctx){
-    const hasBg=_bgImgs.some(img=>img!==null);
-    BG_LAYERS.forEach((cfg,i)=>{
-      const img=_bgImgs[i]; if(!img) return;
+  draw(ctx, stage=1){
+    const layers = stage===2 ? BG_LAYERS_2 : BG_LAYERS;
+    const imgs   = stage===2 ? _bgImgs2    : _bgImgs;
+    const hasBg=imgs.some(img=>img!==null);
+    layers.forEach((cfg,i)=>{
+      const img=imgs[i]; if(!img) return;
       const imgH=img.naturalHeight||CANVAS_H;
       const scale=CANVAS_W/(img.naturalWidth||CANVAS_W);
       const drawH=imgH*scale;
@@ -1572,18 +1829,25 @@ class Game {
     window.addEventListener('click',   function(){ if(window._SE) window._SE.resume(); });
     window.addEventListener('pointerdown', function(){ if(window._SE) window._SE.resume(); });
     this.state=STATE.START;
+    this.stage=1;               // 現在の面
     this.score=0; this.lives=3;
     this.hiScore = parseInt(localStorage.getItem('touhou_hiscore') || '0', 10);
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.bossDefeated=false;
-    this.powerItems=[]; // Pアイテムプール
-    this.bombItems=[];  // ボムアイテムプール
-    // ★ 雑魚敵弾の共通プール（敵が消えても弾はここに残り続ける）
+    this.powerItems=[]; this.bombItems=[]; this.lifeItems=[];
     this.enemyBullets=[];
     this.enemySpawnTimer=0; this.enemySpawnInterval=68;
     this.spawnWave=0;
-    this.gameTimer=0;           // プレイ開始からのフレーム数
-    this.bossSpawnTime=20*60;   // 20秒後（60fps × 20）にボス出現
+    this.gameTimer=0;
+    this.bossSpawnTime=20*60;   // 1面: 20秒後にボス
+    // 2面用
+    this.midBoss=null; this.midBossDefeated=false;
+    this.midBossSpawnTime=20*60;
+    this.bossSpawnAfterMid=20*60; // 中ボス撃破後20秒でボス
+    this.midBossDefeatedAt=0;
+    this.sideFliers=[];
+    // ステージクリア表示用
+    this._stageClearTimer=0;
     this.uiTick=0; this.flashOn=true; this.flashTimer=0;
     this.player=new Player();
     // タイトル画面のマウスインタラクション
@@ -1634,16 +1898,42 @@ class Game {
 
   reset(){
     window._BGM && window._BGM.stop();
-    this.score=0; this.lives=3;
+    this.stage=1; this.score=0; this.lives=3;
     this._trackTitle = null; this._trackTimer = 0; this._trackPhase = 0;
     this.player=new Player();
     this.enemies=[]; this.boss=null; this.particles=[];
     this.bombEffects=[]; this.enemyBullets=[]; this.bossDefeated=false;
-    this.powerItems=[];
-    this.bombItems=[];
+    this.powerItems=[]; this.bombItems=[]; this.lifeItems=[];
     this.enemySpawnTimer=0; this.spawnWave=0;
-    this.gameTimer=0;
-    this._stageTimer=0;  // 面タイトル表示タイマー
+    this.gameTimer=0; this.bossSpawnTime=20*60;
+    this.midBoss=null; this.midBossDefeated=false;
+    this.midBossSpawnTime=20*60; this.midBossDefeatedAt=0;
+    this.sideFliers=[];
+    this._stageTimer=0; this._stageClearTimer=0;
+  }
+
+  /** 2面開始（スコアリセット、パワー・ボム引き継ぎ、残機+1） */
+  startStage2(){
+    window._BGM && window._BGM.stop();
+    this.stage=2;
+    const savedPower = this.player.powerLevel;
+    const savedBombs = this.player.bombs;
+    this.score=0;
+    this.lives = Math.min(this.lives+1, 9);
+    this._trackTitle = null; this._trackTimer = 0; this._trackPhase = 0;
+    this.player=new Player();
+    this.player.powerLevel = savedPower;
+    this.player.bombs = savedBombs;
+    this.enemies=[]; this.boss=null; this.particles=[];
+    this.bombEffects=[]; this.enemyBullets=[]; this.bossDefeated=false;
+    this.powerItems=[]; this.bombItems=[]; this.lifeItems=[];
+    this.enemySpawnTimer=0; this.spawnWave=0;
+    this.gameTimer=0; this.bossSpawnTime=9999*60; // 2面ではmidBoss経由でboss
+    this.midBoss=null; this.midBossDefeated=false;
+    this.midBossSpawnTime=20*60; this.midBossDefeatedAt=0;
+    this.sideFliers=[];
+    this._stageTimer=0; this._stageClearTimer=0;
+    this.state=STATE.PLAYING;
   }
 
   loop(){
@@ -1669,9 +1959,10 @@ class Game {
   update(){
     this.uiTick++; this.starField.update();
     switch(this.state){
-      case STATE.START:    this.updateStart();    break;
-      case STATE.PLAYING:  this.updatePlaying();  break;
-      case STATE.GAMEOVER: this.updateGameOver(); break;
+      case STATE.START:       this.updateStart();       break;
+      case STATE.PLAYING:     this.updatePlaying();     break;
+      case STATE.GAMEOVER:    this.updateGameOver();    break;
+      case STATE.STAGE_CLEAR: this.updateStageClear();  break;
     }
     this.input.clearJustPressed();
   }
@@ -1696,47 +1987,92 @@ class Game {
     if(this.input.isJustPressed('KeyR')){ this.reset(); this.state=STATE.PLAYING; }
   }
 
+  updateStageClear(){
+    window._BGM && window._BGM.stop();
+    this._stageClearTimer++;
+    if(this.input.isJustPressed('KeyZ') || this.input.isJustPressed('Space')){
+      this.startStage2();
+    }
+  }
+
   updatePlaying(){
     this.gameTimer++;
     this._stageTimer++;
-    // 曲名タイマー更新
     if (this._trackTitle) this._trackTimer++;
 
     // --- BGM制御 ---
+    const stageKey  = this.stage===2 ? 'stage2' : 'stage';
+    const bossKey   = this.stage===2 ? 'boss2'  : 'boss';
     if (!this.bossDefeated) {
-      if (this.boss) {
-        window._BGM && window._BGM.play('boss');
-      } else {
-        window._BGM && window._BGM.play('stage');
-      }
+      if (this.boss) window._BGM && window._BGM.play(bossKey);
+      else           window._BGM && window._BGM.play(stageKey);
     } else {
       window._BGM && window._BGM.stop();
     }
-    // 自機更新（ボム使用のためgameオブジェクトを渡す）
+
     this.player.update(this.input, this);
 
-    // --- 敵出現（ボスがいない間）---
-    if(!this.boss){
-      this.enemySpawnTimer++;
-      if(this.enemySpawnTimer>=this.enemySpawnInterval){
-        this.enemySpawnTimer=0; this.spawnWave++;
-        this.spawnEnemyWave();
+    if(this.stage===1){
+      // ── 1面ロジック ──
+      if(!this.boss){
+        this.enemySpawnTimer++;
+        if(this.enemySpawnTimer>=this.enemySpawnInterval){
+          this.enemySpawnTimer=0; this.spawnWave++;
+          this.spawnEnemyWave();
+        }
       }
-    }
+      if(this.gameTimer>=this.bossSpawnTime&&!this.boss&&!this.bossDefeated){
+        this.enemies=[]; this.boss=new Boss(this.player,this);
+      }
+    } else {
+      // ── 2面ロジック ──
+      const noMid = !this.midBoss && !this.midBossDefeated;
+      const midDone = this.midBossDefeated;
 
-    // --- ボス出現（開始から20秒後）---
-    if(this.gameTimer>=this.bossSpawnTime&&!this.boss&&!this.bossDefeated){
-      this.enemies=[]; this.boss=new Boss(this.player, this);
+      // 敵出現（中ボス不在かつ本ボス不在の間）
+      if(!this.midBoss && !this.boss){
+        this.enemySpawnTimer++;
+        if(this.enemySpawnTimer>=this.enemySpawnInterval){
+          this.enemySpawnTimer=0; this.spawnWave++;
+          this.spawnEnemyWaveS2();
+        }
+      }
+      // 中ボス出現（20秒後、まだ出ていない）
+      if(noMid && this.gameTimer>=this.midBossSpawnTime){
+        this.enemies=[]; this.sideFliers=[];
+        this.enemyBullets.forEach(b=>{b.active=false;});
+        this.midBoss=new MidBoss(this.player,this);
+      }
+      // 中ボス更新
+      if(this.midBoss){
+        this.midBoss.update();
+        if(!this.midBoss.active){
+          this.score+=this.midBoss.score;
+          this.spawnExplosion(this.midBoss.x,this.midBoss.y,'#44ff88',60);
+          this.midBoss=null; this.midBossDefeated=true;
+          this.midBossDefeatedAt=this.gameTimer;
+          this.enemySpawnTimer=0; this.spawnWave=0;
+        }
+      }
+      // 本ボス出現（中ボス撃破から20秒後）
+      if(midDone && !this.boss && !this.bossDefeated){
+        if(this.gameTimer>=this.midBossDefeatedAt+this.bossSpawnAfterMid){
+          this.enemies=[]; this.sideFliers=[];
+          this.enemyBullets.forEach(b=>{b.active=false;});
+          this.boss=new Boss(this.player,this);
+        }
+      }
+      // SideFliers 更新
+      this.sideFliers.forEach(sf=>sf.update());
+      this.sideFliers=this.sideFliers.filter(sf=>sf.active);
     }
 
     this.enemies.forEach(e=>e.update());
     this.enemies=this.enemies.filter(e=>e.active);
 
-    // ★ 共通プールの敵弾を更新（splice でインプレース削除）
     this.enemyBullets.forEach(b=>b.update());
-    for(let i=this.enemyBullets.length-1;i>=0;i--){
+    for(let i=this.enemyBullets.length-1;i>=0;i--)
       if(!this.enemyBullets[i].active) this.enemyBullets.splice(i,1);
-    }
 
     if(this.boss){
       this.boss.update();
@@ -1744,30 +2080,42 @@ class Game {
         this.score+=this.boss.score;
         this.spawnExplosion(this.boss.x,this.boss.y,'#ff8800',80);
         this.boss=null; this.bossDefeated=true;
+        // 1面クリア → STAGE_CLEAR 画面へ
+        if(this.stage===1){
+          this._stageClearTimer=0;
+          this.state=STATE.STAGE_CLEAR;
+        }
       }
     }
 
-    // --- Pアイテム更新・取得判定 ---
+    // --- アイテム更新・取得 ---
     this.powerItems.forEach(item=>item.update());
     this.powerItems=this.powerItems.filter(item=>item.active);
     for(const item of this.powerItems){
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
         window._SE && window._SE.play('powerItem');
-        this.player.powerLevel=Math.min(this.player.powerLevel+1, this.player.powerMax);
+        this.player.powerLevel=Math.min(this.player.powerLevel+1,this.player.powerMax);
         this.spawnExplosion(item.x,item.y,'#ff4444',6);
       }
     }
-
-    // --- ボムアイテム更新・取得判定 ---
     this.bombItems.forEach(item=>item.update());
     this.bombItems=this.bombItems.filter(item=>item.active);
     for(const item of this.bombItems){
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
         window._SE && window._SE.play('bombItem');
-        this.player.bombs=Math.min(this.player.bombs+1, 9); // 最大9個まで
+        this.player.bombs=Math.min(this.player.bombs+1,9);
         this.spawnExplosion(item.x,item.y,'#4466ff',6);
+      }
+    }
+    this.lifeItems.forEach(item=>item.update());
+    this.lifeItems=this.lifeItems.filter(item=>item.active);
+    for(const item of this.lifeItems){
+      if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
+        item.active=false;
+        this.lives=Math.min(this.lives+1,9);
+        this.spawnExplosion(item.x,item.y,'#44ff88',10);
       }
     }
 
@@ -1789,8 +2137,41 @@ class Game {
 
   spawnEnemy(type='normal', xOffset=0){
     const x=clamp(randFloat(40,CANVAS_W-40)+xOffset,30,CANVAS_W-30);
-    // ★ enemyBullets（共通プール）を渡すことで、撃破後も弾が残る
     this.enemies.push(new Enemy(x,-25,this.player,type,this.enemyBullets));
+  }
+
+  /** 2面 敵ウェーブ */
+  spawnEnemyWaveS2(){
+    const w=this.spawnWave;
+    if(w%15===0){
+      // 左右同時侵入 SideFlier ペア
+      this.spawnSideFlierPair();
+    } else if(w%7===0){
+      // 縦列：5体
+      for(let i=0;i<5;i++){
+        const x=randFloat(60,CANVAS_W-60);
+        setTimeout(()=>{ this.enemies.push(new Enemy(x,-25-i*35,this.player,'column',this.enemyBullets)); }, i*120);
+      }
+    } else if(w%4===0){
+      // 特攻大量（8体）
+      for(let i=0;i<8;i++){
+        const x=randFloat(20,CANVAS_W-20);
+        this.enemies.push(new Enemy(x,-10-i*8,this.player,'kamikaze',this.enemyBullets));
+      }
+    } else if(w%3===0){
+      // 通常 + spread
+      this.spawnEnemy('normal'); this.spawnEnemy('spread',80);
+    } else {
+      // 特攻少数 + normal
+      for(let i=0;i<3;i++) this.enemies.push(new Enemy(randFloat(20,CANVAS_W-20),-10,this.player,'kamikaze',this.enemyBullets));
+      if(w%2===0) this.spawnEnemy('normal');
+    }
+  }
+
+  /** SideFlier を左右1体ずつ同時スポーン */
+  spawnSideFlierPair(){
+    this.sideFliers.push(new SideFlier('left',  this.player, this.enemyBullets));
+    this.sideFliers.push(new SideFlier('right', this.player, this.enemyBullets));
   }
 
   spawnExplosion(x,y,color,count=20){
@@ -1811,6 +2192,8 @@ class Game {
     if(this.boss) this.boss.bullets.forEach(b=>{b.active=false;});
     this.enemies.forEach(e=>{ e.damage(9999); this.spawnExplosion(e.x,e.y,'#cc88ff',15); this.score+=e.score; });
     this.enemies=this.enemies.filter(e=>e.active);
+    if(this.sideFliers) this.sideFliers.forEach(sf=>{ sf.damage(9999); this.spawnExplosion(sf.x,sf.y,'#44ffcc',15); this.score+=sf.score; });
+    if(this.sideFliers) this.sideFliers=this.sideFliers.filter(sf=>sf.active);
     if(this.boss&&!this.boss.entering){
       this.boss.damage(80);
       this.spawnExplosion(this.boss.x,this.boss.y,'#ff88ff',20);
@@ -1840,6 +2223,14 @@ class Game {
           if(player.hit()){
             this.lives--;
             this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
+            // 被弾前のパワー1割分のPアイテムをドロップ
+            const dropCount = Math.floor((player._hitDropPower || 0) * 0.1);
+            for(let _d=0;_d<dropCount;_d++){
+              this.powerItems.push(new PowerItem(
+                player.x + randFloat(-40,40),
+                player.y + randFloat(-20,20)
+              ));
+            }
             if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore', this.hiScore); } this.state=STATE.GAMEOVER; }
             break;
           }
@@ -1876,6 +2267,57 @@ class Game {
           pb.active=false;
           window._SE && window._SE.play('playerBulletHit');
           if(!this.boss.damage(pb.power)) this.spawnExplosion(pb.x,pb.y,'#ffffff',2);
+        }
+      }
+    }
+
+    // 4. 自機弾 vs 中ボス
+    if(this.midBoss&&!this.midBoss.entering){
+      for(const pb of player.bullets){
+        if(!pb.active) continue;
+        if(dist(pb.x,pb.y,this.midBoss.x,this.midBoss.y)<pb.radius+this.midBoss.radius){
+          pb.active=false;
+          window._SE && window._SE.play('playerBulletHit');
+          this.midBoss.damage(pb.power);
+          this.spawnExplosion(pb.x,pb.y,'#44ff88',2);
+        }
+      }
+    }
+
+    // 5. 自機弾 vs SideFlier
+    for(const pb of player.bullets){
+      if(!pb.active) continue;
+      for(const sf of this.sideFliers){
+        if(!sf.active) continue;
+        if(dist(pb.x,pb.y,sf.x,sf.y)<pb.radius+sf.radius){
+          pb.active=false;
+          window._SE && window._SE.play('playerBulletHit');
+          if(sf.damage(pb.power)){
+            this.score+=sf.score;
+            window._SE && window._SE.play('enemyDeath');
+            this.spawnExplosion(sf.x,sf.y,'#44ffcc',15);
+            if(Math.random()<0.5) this.powerItems.push(new PowerItem(sf.x,sf.y));
+          }
+          break;
+        }
+      }
+    }
+
+    // 6. 中ボス弾 vs 自機
+    if(this.midBoss && player.invincible===0){
+      for(const eb of this.midBoss.bullets){
+        if(!eb.active) continue;
+        if(dist(player.x,player.y,eb.x,eb.y)<player.hitRadius+eb.hitRadius){
+          eb.active=false;
+          window._SE && window._SE.play('playerHit');
+          if(player.hit()){
+            this.lives--;
+            this.spawnExplosion(eb.x,eb.y,'#88ccff',20);
+            const dropCount=Math.floor((player._hitDropPower||0)*0.1);
+            for(let _d=0;_d<dropCount;_d++) this.powerItems.push(new PowerItem(player.x+randFloat(-40,40),player.y+randFloat(-20,20)));
+            if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore',this.hiScore); } this.state=STATE.GAMEOVER; }
+            break;
+          }
         }
       }
     }
@@ -2204,14 +2646,24 @@ class Game {
 
     // ── ボス出現カウントダウン ──
     if(!this.boss && !this.bossDefeated){
-      const rem=Math.max(0,Math.ceil((this.bossSpawnTime-this.gameTimer)/60));
-      y+=24;
-      ctx.textAlign='center'; ctx.font='bold 10px monospace';
-      ctx.fillStyle= rem<=5 ? '#ff4444' : 'rgba(160,120,255,0.55)';
-      ctx.shadowColor= rem<=5 ? '#ff0000' : 'transparent';
-      ctx.shadowBlur= rem<=5 ? 10 : 0;
-      ctx.fillText(`BOSS  ${rem}s`, cx2, y);
-      ctx.shadowBlur=0;
+      let rem=0, label='BOSS';
+      if(this.stage===1){
+        rem=Math.max(0,Math.ceil((this.bossSpawnTime-this.gameTimer)/60));
+      } else if(!this.midBoss && !this.midBossDefeated){
+        rem=Math.max(0,Math.ceil((this.midBossSpawnTime-this.gameTimer)/60));
+        label='MID BOSS';
+      } else if(this.midBossDefeated){
+        rem=Math.max(0,Math.ceil((this.midBossDefeatedAt+this.bossSpawnAfterMid-this.gameTimer)/60));
+      }
+      if(rem>=0){
+        y+=24;
+        ctx.textAlign='center'; ctx.font='bold 10px monospace';
+        ctx.fillStyle= rem<=5 ? '#ff4444' : 'rgba(160,120,255,0.55)';
+        ctx.shadowColor= rem<=5 ? '#ff0000' : 'transparent';
+        ctx.shadowBlur= rem<=5 ? 10 : 0;
+        ctx.fillText(`${label}  ${rem}s`, cx2, y);
+        ctx.shadowBlur=0;
+      }
     }
 
     // ── 下部画像（キャラクター立ち絵など） ──
@@ -2263,7 +2715,11 @@ class Game {
     //  メイン縦書き列：「〜 幻 想 郷 の 結 界 〜」
     //  「〜」だけ 90° 回転して描画
     // ─────────────────────────────────────────
-    const mainChars  = ['〜','幻','想','郷','の','結','界','〜'];
+    // 面によってタイトル文字を切り替え
+    const _stageTitle2 = this.stage===2
+      ? ['〜','幻','想','郷','の','森','〜']
+      : ['〜','幻','想','郷','の','結','界','〜'];
+    const mainChars  = _stageTitle2;
     const mainSize   = 38;
     const mainGap    = mainSize + 6;
     const totalMainH = mainChars.length * mainGap - 6;
@@ -2293,7 +2749,7 @@ class Game {
     //  サブ：「一面」を上部に小さく
     // ─────────────────────────────────────────
     const subSize  = 18;
-    const subChars = ['一','面'];
+    const subChars = this.stage===2 ? ['二','面'] : ['一','面'];
     const subX     = cx;
     const subStartY = mainStartY - subSize * 3.5;
 
