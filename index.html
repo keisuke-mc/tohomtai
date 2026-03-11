@@ -137,7 +137,7 @@ const HUD_IMAGE_SRC = null; // 例: 'hud_char.png'
 //  TILDE_OFFSET_X : 左右方向（負=左、正=右）
 //  TILDE_OFFSET_Y : 上下方向（負=上、正=下）
 // ============================================================
-const TILDE_OFFSET_X = -15;   // px
+const TILDE_OFFSET_X = -15;  // px
 const TILDE_OFFSET_Y = 0;   // px
 
 // ============================================================
@@ -2053,7 +2053,7 @@ class Game {
     if(warn) this.drawWarning(ctx);
     if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
     // 面タイトル表示（ゲーム開始直後）
-    if(this._stageTimer < 180) this.drawStageTitle(ctx);
+    if(this._stageTimer < 230) this.drawStageTitle(ctx);
   }
 
   /** ゲームエリア内に曲名を表示（縦書き3秒→右上横書き常時） */
@@ -2235,9 +2235,9 @@ class Game {
   }
 
   drawStageTitle(ctx){
-    const TOTAL    = 180;
+    const TOTAL    = 230;
     const FADE_IN  = 24;
-    const FADE_OUT = 40;
+    const FADE_OUT = 90;
     const t = this._stageTimer;
 
     let alpha;
