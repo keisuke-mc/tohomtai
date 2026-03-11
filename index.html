@@ -2226,22 +2226,17 @@ class Game {
   }
 
   drawStageTitle(ctx){
-    const TOTAL    = 180;          // 総表示フレーム数（3秒@60fps）
-    const FADE_IN  = 24;           // フェードインフレーム
-    const FADE_OUT = 40;           // フェードアウトフレーム
+    const TOTAL    = 180;
+    const FADE_IN  = 24;
+    const FADE_OUT = 40;
     const t = this._stageTimer;
 
     let alpha;
-    if      (t < FADE_IN)              alpha = t / FADE_IN;
-    else if (t > TOTAL - FADE_OUT)     alpha = (TOTAL - t) / FADE_OUT;
-    else                               alpha = 1.0;
+    if      (t < FADE_IN)          alpha = t / FADE_IN;
+    else if (t > TOTAL - FADE_OUT) alpha = (TOTAL - t) / FADE_OUT;
+    else                           alpha = 1.0;
     alpha = Math.max(0, Math.min(1, alpha));
-
     if (alpha <= 0) return;
-
-    // 面タイトル文字列を縦書きに分解
-    const line1 = '一面';
-    const line2 = '〜幻想郷の結界〜';
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -2249,52 +2244,68 @@ class Game {
     const cx = CANVAS_W / 2;
     const cy = CANVAS_H / 2;
 
-    // 背景の薄いオーバーレイ
-    ctx.fillStyle = 'rgba(0,0,15,0.45)';
+    // 背景オーバーレイ
+    ctx.fillStyle = 'rgba(0,0,15,0.50)';
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-    // 装飾横線
-    const lineW = 130;
-    const lineY1 = cy - 120, lineY2 = cy + 120;
-    for (const ly of [lineY1, lineY2]) {
-      const g = ctx.createLinearGradient(cx - lineW, ly, cx + lineW, ly);
-      g.addColorStop(0,   'rgba(200,160,255,0)');
-      g.addColorStop(0.4, 'rgba(200,160,255,0.7)');
-      g.addColorStop(0.6, 'rgba(200,160,255,0.7)');
-      g.addColorStop(1,   'rgba(200,160,255,0)');
-      ctx.strokeStyle = g;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx - lineW, ly);
-      ctx.lineTo(cx + lineW, ly);
-      ctx.stroke();
-    }
-
     ctx.textAlign = 'center';
+
+    // ─────────────────────────────────────────
+    //  メイン縦書き列：「〜 幻 想 郷 の 結 界 〜」
+    //  「〜」だけ 90° 回転して描画
+    // ─────────────────────────────────────────
+    const mainChars  = ['〜','幻','想','郷','の','結','界','〜'];
+    const mainSize   = 38;
+    const mainGap    = mainSize + 6;
+    const totalMainH = mainChars.length * mainGap - 6;
+    const mainStartY = cy - totalMainH / 2 + mainSize * 0.8;
+    const mainX      = cx;
+
+    ctx.font        = `bold ${mainSize}px serif`;
+    ctx.fillStyle   = '#ffffff';
     ctx.shadowColor = '#cc88ff';
-    ctx.shadowBlur  = 20;
+    ctx.shadowBlur  = 22;
 
-    // ── 「一面」を大きく ──
-    const charSize1 = 54;
-    ctx.font = `bold ${charSize1}px serif`;
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowBlur = 24;
-    const chars1 = line1.split('');
-    chars1.forEach((ch, i) => {
-      ctx.fillText(ch, cx, cy - 55 + i * (charSize1 + 4));
+    mainChars.forEach((ch, i) => {
+      const charY = mainStartY + i * mainGap;
+      if (ch === '〜') {
+        // 「〜」を 90° 回転（縦書きで波ダッシュらしく見せる）
+        ctx.save();
+        ctx.translate(mainX, charY - mainSize * 0.3);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillText(ch, 0, 0);
+        ctx.restore();
+      } else {
+        ctx.fillText(ch, mainX, charY);
+      }
     });
 
-    // ── 「〜幻想郷の結界〜」を小さく ──
-    const charSize2 = 22;
-    ctx.font = `bold ${charSize2}px serif`;
-    ctx.fillStyle = '#ddbbff';
-    ctx.shadowBlur = 12;
-    const chars2 = line2.split('');
-    const totalH2 = chars2.length * (charSize2 + 2);
-    const startY2 = cy + 70;
-    chars2.forEach((ch, i) => {
-      ctx.fillText(ch, cx, startY2 + i * (charSize2 + 2));
+    // ─────────────────────────────────────────
+    //  サブ：「一面」を上部に小さく
+    // ─────────────────────────────────────────
+    const subSize  = 18;
+    const subChars = ['一','面'];
+    const subX     = cx;
+    const subStartY = mainStartY - subSize * 3.5;
+
+    ctx.font        = `bold ${subSize}px serif`;
+    ctx.fillStyle   = 'rgba(210,180,255,0.85)';
+    ctx.shadowColor = '#aa66ff';
+    ctx.shadowBlur  = 10;
+
+    subChars.forEach((ch, i) => {
+      ctx.fillText(ch, subX, subStartY + i * (subSize + 4));
     });
+
+    // 「一面」と「〜幻想郷…」の間の区切り線
+    const divY = mainStartY - subSize * 0.8;
+    const divW = 60;
+    const g = ctx.createLinearGradient(cx - divW, divY, cx + divW, divY);
+    g.addColorStop(0,   'rgba(200,160,255,0)');
+    g.addColorStop(0.5, 'rgba(200,160,255,0.6)');
+    g.addColorStop(1,   'rgba(200,160,255,0)');
+    ctx.strokeStyle = g; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - divW, divY); ctx.lineTo(cx + divW, divY); ctx.stroke();
 
     ctx.restore();
   }
