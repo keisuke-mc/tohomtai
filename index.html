@@ -132,6 +132,15 @@ const TITLE_BG_SRC  = null; // 例: 'title_bg.jpg'
 const HUD_IMAGE_SRC = null; // 例: 'hud_char.png'
 
 // ============================================================
+//  【面タイトル「〜」位置調整】
+//  90°回転した「〜」がずれる場合にここで微調整してください。
+//  TILDE_OFFSET_X : 左右方向（負=左、正=右）
+//  TILDE_OFFSET_Y : 上下方向（負=上、正=下）
+// ============================================================
+const TILDE_OFFSET_X = 0;   // px
+const TILDE_OFFSET_Y = 0;   // px
+
+// ============================================================
 //  【道中敵 画像設定】
 //  各タイプの道中敵にアニメーションWebP（またはPNG）を割り当てられます。
 //
@@ -2271,7 +2280,7 @@ class Game {
       if (ch === '〜') {
         // 「〜」を 90° 回転（縦書きで波ダッシュらしく見せる）
         ctx.save();
-        ctx.translate(mainX, charY - mainSize * 0.3);
+        ctx.translate(mainX + TILDE_OFFSET_X, charY - mainSize * 0.3 + TILDE_OFFSET_Y);
         ctx.rotate(Math.PI / 2);
         ctx.fillText(ch, 0, 0);
         ctx.restore();
