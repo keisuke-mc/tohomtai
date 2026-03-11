@@ -57,6 +57,24 @@
 const PLAYER_IMAGE_SRC = 'player.png';   // 例: 'player.png'  null=デフォルト描画
 const BOSS_IMAGE_SRC   = null;   // 例: 'boss.png'    null=デフォルト描画
 
+// ============================================================
+//  【ボス スペルカード別 立ち絵設定】
+//  特定のスペルカード発動時にボスの立ち絵（WebP/PNG）を切り替えられます。
+//  キーはスペルカードの name と一致させてください。
+//  null にするとデフォルト描画のまま。
+//
+//  例:
+//    '星符「星屑の奔流」': { src: 'boss_stardust.webp', width: 120, height: 120 },
+// ============================================================
+const BOSS_SPELL_IMAGES = {
+  '星符「星屑の奔流」': { src: null, width: 120, height: 120 },
+  // 他のスペルカードも同様に追加可能
+  // '妖符「紅蝶乱舞」':     { src: null, width: 120, height: 120 },
+  // '霊符「幽霊の輪舞曲」': { src: null, width: 120, height: 120 },
+  // '禁忌「永夜の花嵐」':   { src: null, width: 120, height: 120 },
+  // '神霊「光の三位一体」': { src: null, width: 120, height: 120 },
+};
+
 // 自機画像の描画サイズ（px）。画像のアスペクト比は自動で保持されません
 const PLAYER_IMG_W = 43;
 const PLAYER_IMG_H = 43;
@@ -148,9 +166,9 @@ const ENEMY_IMAGES = {
 //    { src: 'bg/layer3.png', speed: 2.0, alpha: 0.7  }, // 手前・速い
 // ============================================================
 const BG_LAYERS = [
-  { src: 'bg/layer1.png', speed: 20.0,  alpha: 1.0  },
-  { src: 'bg/layer2.png', speed: 1.0,  alpha: 0.85 },
-  { src: 'bg/layer3.png', speed: 2.0,  alpha: 0.70 },
+  { src: bg/layer1, speed: 0.4,  alpha: 20.0  },
+  { src: bg/layer2, speed: 1.0,  alpha: 0.85 },
+  { src: bg/layer3, speed: 2.0,  alpha: 0.70 },
 ];
 
 // ============================================================
@@ -167,8 +185,8 @@ const BG_LAYERS = [
 //  volume: 音量（0.0〜1.0）。loop: true でループ再生。
 // ============================================================
 const BGM_CONFIG = {
-  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '神々が恋した幻想郷' }, // 道中BGM
-  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: 'UN.オーエンは彼女なのか？〜アレンジ〜' }, // ボス戦BGM
+  stage: { src: 'bgm/stage.mp3', volume: 0.5, loop: true, title: '曲名をここに入力' }, // 道中BGM
+  boss:  { src: 'bgm/boss.mp3',  volume: 0.6, loop: true, title: '曲名をここに入力' }, // ボス戦BGM
 };
 
 const SE_CONFIG = {
@@ -189,6 +207,7 @@ const SE_CONFIG = {
 // 画像を非同期でロードし、完了したら変数に格納する
 let PLAYER_IMG    = null;
 let BOSS_IMG      = null;
+const _bossSpellImgs = {};  // spellName -> HTMLImageElement
 let TITLE_BG_IMG  = null;
 let HUD_IMG       = null;
 const _bgImgs     = [null, null, null];
@@ -224,6 +243,14 @@ function loadImages() {
     const img = new Image();
     img.onload  = () => { _bgImgs[i] = img; };
     img.onerror = () => { console.warn('[BG読み込み失敗] レイヤー'+(i+1)+':', cfg.src); };
+    img.src = cfg.src;
+  });
+  // ボス スペルカード別 立ち絵ロード
+  Object.entries(BOSS_SPELL_IMAGES).forEach(([name, cfg]) => {
+    if (!cfg || !cfg.src) return;
+    const img = new Image();
+    img.onload  = () => { _bossSpellImgs[name] = img; };
+    img.onerror = () => { console.warn('[ボス立ち絵読み込み失敗]', name, cfg.src); };
     img.src = cfg.src;
   });
   // 道中敵画像ロード（アニメーションWebP対応）
@@ -1307,8 +1334,18 @@ class Boss {
       ctx.lineWidth=2; ctx.shadowColor=`hsl(${card.bgHue},100%,70%)`; ctx.shadowBlur=15; ctx.stroke();
     }
 
-    // 本体描画：PNG画像 or デフォルトグラデーション円
-    if (BOSS_IMG) {
+    // 本体描画：スペルカード別立ち絵 > 通常ボス画像 > デフォルト
+    const spellImg = _bossSpellImgs[this.card.name];
+    const spellCfg = BOSS_SPELL_IMAGES[this.card.name];
+    if (spellImg && spellCfg) {
+      // スペルカード発動中の立ち絵（発動アナウンス時はフェードイン）
+      const fadeAlpha = this.cardAnnounce > 0
+        ? Math.min(1, 1 - (this.cardAnnounce - 210) / 60)  // 最初60fでフェードイン
+        : 1;
+      ctx.globalAlpha = Math.max(0, Math.min(1, fadeAlpha));
+      ctx.drawImage(spellImg, -spellCfg.width/2, -spellCfg.height/2, spellCfg.width, spellCfg.height);
+      ctx.globalAlpha = 1;
+    } else if (BOSS_IMG) {
       ctx.drawImage(BOSS_IMG, -BOSS_IMG_W/2, -BOSS_IMG_H/2, BOSS_IMG_W, BOSS_IMG_H);
     } else {
       // デフォルト：グラデーション円＋瞳
@@ -1597,6 +1634,7 @@ class Game {
     this.bombItems=[];
     this.enemySpawnTimer=0; this.spawnWave=0;
     this.gameTimer=0;
+    this._stageTimer=0;  // 面タイトル表示タイマー
   }
 
   loop(){
@@ -1651,6 +1689,7 @@ class Game {
 
   updatePlaying(){
     this.gameTimer++;
+    this._stageTimer++;
     // 曲名タイマー更新
     if (this._trackTitle) this._trackTimer++;
 
@@ -2004,6 +2043,8 @@ class Game {
     const warn = this.gameTimer>=15*60 && this.gameTimer<this.bossSpawnTime && !this.boss && !this.bossDefeated;
     if(warn) this.drawWarning(ctx);
     if(this.bossDefeated&&!this.boss) this.drawClear(ctx);
+    // 面タイトル表示（ゲーム開始直後）
+    if(this._stageTimer < 180) this.drawStageTitle(ctx);
   }
 
   /** ゲームエリア内に曲名を表示（縦書き3秒→右上横書き常時） */
@@ -2180,6 +2221,80 @@ class Game {
       ctx.fillText('hud_image.png', imgX+imgSize/2, imgY+imgSize/2-5);
       ctx.fillText('を配置できます', imgX+imgSize/2, imgY+imgSize/2+10);
     }
+
+    ctx.restore();
+  }
+
+  drawStageTitle(ctx){
+    const TOTAL    = 180;          // 総表示フレーム数（3秒@60fps）
+    const FADE_IN  = 24;           // フェードインフレーム
+    const FADE_OUT = 40;           // フェードアウトフレーム
+    const t = this._stageTimer;
+
+    let alpha;
+    if      (t < FADE_IN)              alpha = t / FADE_IN;
+    else if (t > TOTAL - FADE_OUT)     alpha = (TOTAL - t) / FADE_OUT;
+    else                               alpha = 1.0;
+    alpha = Math.max(0, Math.min(1, alpha));
+
+    if (alpha <= 0) return;
+
+    // 面タイトル文字列を縦書きに分解
+    const line1 = '一面';
+    const line2 = '〜幻想郷の結界〜';
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+
+    const cx = CANVAS_W / 2;
+    const cy = CANVAS_H / 2;
+
+    // 背景の薄いオーバーレイ
+    ctx.fillStyle = 'rgba(0,0,15,0.45)';
+    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // 装飾横線
+    const lineW = 130;
+    const lineY1 = cy - 120, lineY2 = cy + 120;
+    for (const ly of [lineY1, lineY2]) {
+      const g = ctx.createLinearGradient(cx - lineW, ly, cx + lineW, ly);
+      g.addColorStop(0,   'rgba(200,160,255,0)');
+      g.addColorStop(0.4, 'rgba(200,160,255,0.7)');
+      g.addColorStop(0.6, 'rgba(200,160,255,0.7)');
+      g.addColorStop(1,   'rgba(200,160,255,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - lineW, ly);
+      ctx.lineTo(cx + lineW, ly);
+      ctx.stroke();
+    }
+
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#cc88ff';
+    ctx.shadowBlur  = 20;
+
+    // ── 「一面」を大きく ──
+    const charSize1 = 54;
+    ctx.font = `bold ${charSize1}px serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 24;
+    const chars1 = line1.split('');
+    chars1.forEach((ch, i) => {
+      ctx.fillText(ch, cx, cy - 55 + i * (charSize1 + 4));
+    });
+
+    // ── 「〜幻想郷の結界〜」を小さく ──
+    const charSize2 = 22;
+    ctx.font = `bold ${charSize2}px serif`;
+    ctx.fillStyle = '#ddbbff';
+    ctx.shadowBlur = 12;
+    const chars2 = line2.split('');
+    const totalH2 = chars2.length * (charSize2 + 2);
+    const startY2 = cy + 70;
+    chars2.forEach((ch, i) => {
+      ctx.fillText(ch, cx, startY2 + i * (charSize2 + 2));
+    });
 
     ctx.restore();
   }
