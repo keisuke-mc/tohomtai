@@ -2110,7 +2110,11 @@ class Game {
       if(dist(this.player.x,this.player.y,item.x,item.y)<item.radius+this.player.hitRadius+12){
         item.active=false;
         window._SE && window._SE.play('powerItem');
-        this.player.powerLevel=Math.min(this.player.powerLevel+1,this.player.powerMax);
+        if(this.player.powerLevel>=this.player.powerMax){
+          this.score+=50; // MAX時は50点ボーナス
+        } else {
+          this.player.powerLevel++;
+        }
         this.spawnExplosion(item.x,item.y,'#ff4444',6);
       }
     }
