@@ -1918,7 +1918,7 @@ class Game {
     this.stage=2;
     const savedPower = this.player.powerLevel;
     const savedBombs = this.player.bombs;
-    this.score=0;
+    // スコアは引き継ぎ
     this.lives = Math.min(this.lives+1, 9);
     this._trackTitle = null; this._trackTimer = 0; this._trackPhase = 0;
     this.player=new Player();
@@ -1990,8 +1990,23 @@ class Game {
   updateStageClear(){
     window._BGM && window._BGM.stop();
     this._stageClearTimer++;
-    if(this.input.isJustPressed('KeyZ') || this.input.isJustPressed('Space')){
-      this.startStage2();
+    if(this._clearMenuIndex===undefined) this._clearMenuIndex=0; // 0=次へ, 1=キャンセル
+    // 左右 or 上下で選択
+    if(this.input.isJustPressed('ArrowLeft')||this.input.isJustPressed('ArrowUp')){
+      if(this._clearMenuIndex!==0){ this._clearMenuIndex=0; window._SE&&window._SE.play('menuMove'); }
+    }
+    if(this.input.isJustPressed('ArrowRight')||this.input.isJustPressed('ArrowDown')){
+      if(this._clearMenuIndex!==1){ this._clearMenuIndex=1; window._SE&&window._SE.play('menuMove'); }
+    }
+    if(this.input.isJustPressed('KeyZ')||this.input.isJustPressed('Space')){
+      window._SE&&window._SE.play('menuSelect');
+      if(this._clearMenuIndex===0){
+        this.startStage2();
+      } else {
+        // キャンセル：タイトルに戻る
+        this.reset();
+        this.state=STATE.START;
+      }
     }
   }
 
@@ -2223,12 +2238,12 @@ class Game {
           if(player.hit()){
             this.lives--;
             this.spawnExplosion(eb.x, eb.y, '#88ccff', 20);
-            // 被弾前のパワー1割分のPアイテムをドロップ
+            // 被弾前パワー9割分のPアイテムをゲームエリア中心にドロップ
             const dropCount = Math.floor((player._hitDropPower || 0) * 0.9);
             for(let _d=0;_d<dropCount;_d++){
               this.powerItems.push(new PowerItem(
-                player.x + randFloat(-40,40),
-                player.y + randFloat(-20,20)
+                CANVAS_W/2 + randFloat(-60,60),
+                CANVAS_H/2 + randFloat(-60,60)
               ));
             }
             if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore', this.hiScore); } this.state=STATE.GAMEOVER; }
@@ -2314,7 +2329,7 @@ class Game {
             this.lives--;
             this.spawnExplosion(eb.x,eb.y,'#88ccff',20);
             const dropCount=Math.floor((player._hitDropPower||0)*0.9);
-            for(let _d=0;_d<dropCount;_d++) this.powerItems.push(new PowerItem(player.x+randFloat(-40,40),player.y+randFloat(-20,20)));
+            for(let _d=0;_d<dropCount;_d++) this.powerItems.push(new PowerItem(CANVAS_W/2+randFloat(-60,60),CANVAS_H/2+randFloat(-60,60)));
             if(this.lives<=0){ if(this.score>this.hiScore){ this.hiScore=this.score; localStorage.setItem('touhou_hiscore',this.hiScore); } this.state=STATE.GAMEOVER; }
             break;
           }
@@ -2338,9 +2353,10 @@ class Game {
       ctx.restore();
     }
     switch(this.state){
-      case STATE.START:    this.drawStart(ctx);    break;
-      case STATE.PLAYING:  this.drawPlaying(ctx);  break;
-      case STATE.GAMEOVER: this.drawGameOver(ctx); break;
+      case STATE.START:       this.drawStart(ctx);       break;
+      case STATE.PLAYING:     this.drawPlaying(ctx);     break;
+      case STATE.GAMEOVER:    this.drawGameOver(ctx);    break;
+      case STATE.STAGE_CLEAR: this.drawStageClear(ctx);  break;
     }
   }
 
@@ -2805,6 +2821,100 @@ class Game {
     ctx.fillText('STAGE CLEAR',CANVAS_W/2,CANVAS_H/2-20);
     ctx.font='14px monospace'; ctx.fillStyle='#ffffff'; ctx.shadowBlur=0;
     ctx.fillText('おめでとうございます！',CANVAS_W/2,CANVAS_H/2+18);
+    ctx.restore();
+  }
+
+  drawStageClear(ctx){
+    if(this._clearMenuIndex===undefined) this._clearMenuIndex=0;
+    const sel  = this._clearMenuIndex; // 0=次へ, 1=キャンセル
+    const t    = this._stageClearTimer||0;
+    const CW   = TOTAL_W, CH = CANVAS_H;
+    const cx   = CW/2;
+
+    // 背景
+    ctx.fillStyle='rgba(0,0,18,0.92)'; ctx.fillRect(0,0,CW,CH);
+
+    // 装飾ライン
+    for(const ly of [140,CH-140]){
+      const lg=ctx.createLinearGradient(cx-200,ly,cx+200,ly);
+      lg.addColorStop(0,'rgba(255,220,80,0)');
+      lg.addColorStop(0.5,'rgba(255,220,80,0.5)');
+      lg.addColorStop(1,'rgba(255,220,80,0)');
+      ctx.strokeStyle=lg; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(cx-200,ly); ctx.lineTo(cx+200,ly); ctx.stroke();
+    }
+
+    ctx.save(); ctx.textAlign='center';
+
+    // ── タイトル ──
+    ctx.font='bold 36px serif';
+    ctx.fillStyle='#ffee88'; ctx.shadowColor='#ffaa00'; ctx.shadowBlur=28;
+    ctx.fillText('STAGE  1  CLEAR', cx, 108);
+    ctx.shadowBlur=0;
+
+    // ── スコア ──
+    ctx.font='bold 11px monospace'; ctx.fillStyle='rgba(200,200,160,0.7)';
+    ctx.fillText('SCORE', cx, 175);
+    ctx.font='bold 30px monospace'; ctx.fillStyle='#ffe066';
+    ctx.shadowColor='#ffaa00'; ctx.shadowBlur=14;
+    ctx.fillText(this.score.toString().padStart(9,'0'), cx, 215);
+    ctx.shadowBlur=0;
+
+    // ── 区切り ──
+    ctx.strokeStyle='rgba(180,160,100,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx-160,238); ctx.lineTo(cx+160,238); ctx.stroke();
+
+    // ── ステータス表 ──
+    const stats=[
+      ['残機',   `${this.lives} → ${Math.min(this.lives+1,9)}`],
+      ['ボム',   `${this.player.bombs}`],
+      ['パワー', `${this.player.powerLevel} / ${this.player.powerMax}`],
+    ];
+    ctx.font='12px monospace';
+    stats.forEach(([label,val],i)=>{
+      const y=268+i*26;
+      ctx.fillStyle='rgba(160,180,210,0.7)'; ctx.textAlign='right';
+      ctx.fillText(label, cx-10, y);
+      ctx.fillStyle='#ccddff'; ctx.textAlign='left';
+      ctx.fillText(val, cx+14, y);
+    });
+    ctx.fillStyle='rgba(100,200,140,0.5)'; ctx.textAlign='center'; ctx.font='9px monospace';
+    ctx.fillText('ボム・パワーは引き継ぎ、残機+1', cx, 348);
+
+    // ── 選択ボタン ──
+    const btns=[
+      { label:'二面へ進む', x:cx-90 },
+      { label:'タイトルへ', x:cx+90 },
+    ];
+    btns.forEach(({label,x},i)=>{
+      const active=(i===sel);
+      ctx.save(); ctx.textAlign='center';
+      // ボタン背景
+      const bw=130, bh=32;
+      ctx.fillStyle   = active ? 'rgba(255,220,60,0.18)' : 'rgba(60,60,100,0.3)';
+      ctx.strokeStyle = active ? '#ffee44'               : 'rgba(100,100,160,0.4)';
+      ctx.lineWidth   = active ? 2 : 1;
+      ctx.shadowColor = active ? '#ffdd00' : 'transparent';
+      ctx.shadowBlur  = active ? 14 : 0;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(x-bw/2,400,bw,bh,6) : ctx.rect(x-bw/2,400,bw,bh);
+      ctx.fill(); ctx.stroke();
+      // カーソル
+      if(active){
+        ctx.font='bold 10px monospace'; ctx.fillStyle='#ffee44'; ctx.shadowBlur=0;
+        ctx.fillText('▶', x-bw/2+10, 421);
+      }
+      ctx.font      = active ? 'bold 13px monospace' : '12px monospace';
+      ctx.fillStyle = active ? '#ffee44' : 'rgba(180,180,210,0.7)';
+      ctx.shadowBlur= active ? 10 : 0;
+      ctx.fillText(label, x, 421);
+      ctx.restore();
+    });
+
+    // 操作説明
+    ctx.font='9px monospace'; ctx.fillStyle='rgba(120,130,150,0.6)'; ctx.textAlign='center';
+    ctx.fillText('← → で選択   Z / Space で決定', cx, 464);
+
     ctx.restore();
   }
 
